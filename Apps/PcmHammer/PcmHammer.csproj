@@ -84,10 +84,10 @@
     <Compile Include="CMD_MainNoForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="CMD_PipeClientExample.cs" />
-    <Compile Include="CMD_PipeServer.cs" />
+    <Compile Include="CMD\CMD_PipeClientExample.cs" />
+    <Compile Include="CMD\CMD_PipeServer.cs" />
     <Compile Include="CommandLineOptions.cs" />
-    <Compile Include="CommandLineOptionsExtra.cs" />
+    <Compile Include="CMD\CommandLineOptionsExtra.cs" />
     <Compile Include="DialogBoxes\DelayDialogBox.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -113,14 +113,14 @@
       <DependentUpon>VinForm.cs</DependentUpon>
     </Compile>
     <Compile Include="Configuration.cs" />
-    <Compile Include="IPipeCallback.cs" />
+    <Compile Include="CMD\IPipeCallback.cs" />
     <Compile Include="MainForm.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="MainForm.Designer.cs">
       <DependentUpon>MainForm.cs</DependentUpon>
     </Compile>
-    <Compile Include="CMD_Program.cs" />
+    <Compile Include="CMD\CMD_Program.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <EmbeddedResource Include="DialogBoxes\DelayDialogBox.resx">

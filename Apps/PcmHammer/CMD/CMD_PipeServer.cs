@@ -52,19 +52,32 @@ namespace CMDVersion
                     writer.Flush();
                     while (running)
                     {
-                        pipeServer.WaitForPipeDrain();
-                        var message = reader.ReadLine();
-                        if (message != null)
+                        try
                         {
-                            if (message != "quit")
+                            pipeServer.WaitForPipeDrain();
+                            var message = reader.ReadLine();
+                            if (message != null)
                             {
-                                var reply = pipeCallback.ProcessPipeMessage(message);
-                                ReturnMessage(reply, writer);
+                                if (message != "quit")
+                                {
+                                    var reply = pipeCallback.ProcessPipeMessage(message);
+                                    ReturnMessage(reply, writer);
+                                }
+                                else
+                                {
+                                    running = false;
+                                }
                             }
-                            else
-                            {
-                                running = false;
-                            }
+                        }
+                        catch (IOException e)
+                        {
+                            Log("IOException: " + e.Message);
+                            running = false;
+                        }
+                        catch (OutOfMemoryException e)
+                        {
+                            Log("OutOfMemoryException: " + e.Message);
+                            running = false;
                         }
                     }
                 }

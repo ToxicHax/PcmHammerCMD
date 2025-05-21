@@ -20,32 +20,47 @@ namespace PcmHammer
                 {
                     using (var writer = new StreamWriter(pipeClient))
                     {
+                        //moved up here as it can cause an overflow if readline doesnt block, oops.
+                        Console.WriteLine("Waiting for server handshake");
                         var running = true;
                         while (running)
                         {
-                            Console.WriteLine("Waiting for server handshake");
                             //you wont be able to write/send anything until the server confirms you are connected
-                            var message = reader.ReadLine();
-                            if (message != null)
-                            {
-                                Console.WriteLine("Recieved from server {0}", message);
-                                switch (message)
-                                {
-                                    //connection confirmed
-                                    case "server_handshake":
-                                        //you are now connected to the server, send or request data:
-                                        //check CMD_MainNoForm.cs for the registered command list or the github wiki.
 
-                                        //non-working example, this wont work because you need to send your connected device data first,
-                                        //or request the available device list and send back one the device details
-                                        writer.WriteLine("read_entire");
-                                        writer.Flush();
-                                        break;
-                                    case "quit":
-                                        running = false;
-                                        //server diconnected you for whatever reason, usually an error or problem server side.
-                                        break;
+                            try
+                            {
+                                var message = reader.ReadLine();
+                                if (message != null)
+                                {
+                                    Console.WriteLine("Recieved from server {0}", message);
+                                    switch (message)
+                                    {
+                                        //connection confirmed
+                                        case "server_handshake":
+                                            //you are now connected to the server, send or request data:
+                                            //check CMD_MainNoForm.cs for the registered command list or the github wiki.
+
+                                            //non-working example, this wont work because you need to send your connected device data first,
+                                            //or request the available device list and send back one the device details
+                                            writer.WriteLine("read_entire");
+                                            writer.Flush();
+                                            break;
+                                        case "quit":
+                                            running = false;
+                                            //server diconnected you for whatever reason, usually an error or problem server side.
+                                            break;
+                                    }
                                 }
+                            }
+                            catch (IOException e)
+                            {
+                                Console.WriteLine("IOException: " + e.Message);
+                                running = false;
+                            }
+                            catch (OutOfMemoryException e)
+                            {
+                                Console.WriteLine("OutOfMemoryException: " + e.Message);
+                                running = false;
                             }
                         }
                     }

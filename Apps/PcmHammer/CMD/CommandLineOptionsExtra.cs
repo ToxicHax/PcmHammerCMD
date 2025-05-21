@@ -16,6 +16,9 @@ namespace CMDVersion
         [Option("device_com", Required = false, HelpText = "Device Serial Com Port (0-256), valid: 0, 1, 2..")]
         public string deviceCom { get; set; }
 
+        [Option("list_devices", Required = false, HelpText = "Returns a list of valid devices")]
+        public string devicesList { get; set; }
+
         [Option("cmdversion", Required = false, HelpText = "Display version of CMD build (not PcmHammer version)")]
         public bool ShowCMDVersion { get; set; }
 

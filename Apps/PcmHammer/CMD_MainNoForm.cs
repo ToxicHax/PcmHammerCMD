@@ -45,6 +45,8 @@ namespace CMDVersion
 
         public CMD_MainNoForm()
         {
+            AddUserMessage("CMD PcmHammer version " + CMD_BUILD_VERSION);
+
             Task<CMD_PipeServer> task = Task.Run(() => new CMD_PipeServer(this));
 
             RegisterPipeCommand("read_entire", command_Read_Entire);
