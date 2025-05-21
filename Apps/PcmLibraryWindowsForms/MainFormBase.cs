@@ -1,10 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -20,7 +14,7 @@ namespace PcmHacking
         /// <summary>
         /// The Vehicle object is our interface to the car. It has the device, the message generator, and the message parser.
         /// </summary>
-        private Vehicle vehicle;
+        protected Vehicle vehicle;
         protected Vehicle Vehicle { get { return this.vehicle; } }
 
         public virtual void AddDebugMessage(string message) { }
@@ -107,7 +101,7 @@ namespace PcmHacking
         /// <summary>
         /// Close the old interface device and open a new one.
         /// </summary>
-        protected async Task<bool> ResetDevice()
+        protected virtual async Task<bool> ResetDevice()
         {
             if (this.vehicle != null)
             {
@@ -118,7 +112,7 @@ namespace PcmHacking
             Device device = DeviceFactory.CreateDeviceFromConfigurationSettings(this);
             if (device == null)
             {
-                this.Invoke((MethodInvoker)delegate()
+                this.Invoke((MethodInvoker)delegate ()
                 {
                     this.NoDeviceSelected();
                     this.SetSelectedDeviceText(selectAnotherDevice);
@@ -152,7 +146,7 @@ namespace PcmHacking
         /// <summary>
         /// Initialize the current device.
         /// </summary>
-        protected async Task<bool> InitializeCurrentDevice()
+        protected virtual async Task<bool> InitializeCurrentDevice()
         {
             if (this.vehicle == null)
             {

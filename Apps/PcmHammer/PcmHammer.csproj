@@ -5,7 +5,7 @@
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{A6B28831-A16F-48F3-8C48-9B02CF0B6678}</ProjectGuid>
-    <OutputType>WinExe</OutputType>
+    <OutputType>Exe</OutputType>
     <RootNamespace>PcmHammer</RootNamespace>
     <AssemblyName>PcmHammer</AssemblyName>
     <TargetFrameworkVersion>v4.6.1</TargetFrameworkVersion>
@@ -50,6 +50,9 @@
   <PropertyGroup>
     <ApplicationIcon>0411_256px.ico</ApplicationIcon>
   </PropertyGroup>
+  <PropertyGroup>
+    <StartupObject>CMDVersion.CMD_Program</StartupObject>
+  </PropertyGroup>
   <Target Name="Date" BeforeTargets="CoreCompile">
     <WriteLinesToFile File="$(IntermediateOutputPath)generated.cs" Lines="static partial class Generated { public static long BuildTime = $([System.DateTime]::UtcNow.Ticks)%3B }" Overwrite="true" />
     <ItemGroup>
@@ -78,7 +81,13 @@
     <Reference Include="netstandard" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="CMD_MainNoForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="CMD_PipeClientExample.cs" />
+    <Compile Include="CMD_PipeServer.cs" />
     <Compile Include="CommandLineOptions.cs" />
+    <Compile Include="CommandLineOptionsExtra.cs" />
     <Compile Include="DialogBoxes\DelayDialogBox.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -104,12 +113,14 @@
       <DependentUpon>VinForm.cs</DependentUpon>
     </Compile>
     <Compile Include="Configuration.cs" />
+    <Compile Include="IPipeCallback.cs" />
     <Compile Include="MainForm.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="MainForm.Designer.cs">
       <DependentUpon>MainForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="CMD_Program.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <EmbeddedResource Include="DialogBoxes\DelayDialogBox.resx">
@@ -176,6 +187,9 @@
       <Project>{0b317c5a-e078-4a96-8e7a-00601bca1429}</Project>
       <Name>PcmLibrary</Name>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Analyzer Include="..\J2534DotNet\J2534DotNet\bin\Debug\J2534DotNet.dll" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

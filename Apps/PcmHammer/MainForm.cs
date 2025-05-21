@@ -1,17 +1,8 @@
 ﻿using CommandLine;
-using Microsoft.Win32;
 using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
 using System.Drawing;
 using System.IO;
-using System.IO.Ports;
-using System.Linq;
-using System.Net;
-using System.Net.Http;
 using System.Reflection;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -27,7 +18,7 @@ namespace PcmHacking
         /// Users can verify connectivity by completing a successful test write, real write, or read.
         /// The message just encourages users to do a full read, because that's the best test.
         /// </remarks>
-        private static readonly string UnverifiedConnectionWarning =
+        protected static readonly string UnverifiedConnectionWarning =
             "{0}" +
             Environment.NewLine + Environment.NewLine +
             "If this doesn't work, your vehicle will not be driveable." +
@@ -45,24 +36,24 @@ namespace PcmHacking
         /// <summary>
         /// Title for the unverified-connect warning prompt.
         /// </summary>
-        private static readonly string UnverifiedConnectionWarningTitle = "Are you sure you want to do this?";
+        protected static readonly string UnverifiedConnectionWarningTitle = "Are you sure you want to do this?";
 
         /// <summary>
         /// Remind the user how to verify their connection.
         /// </summary>
-        private static readonly string WiseChoice = "You have made a wise choice. Try a full read first.";
+        protected static readonly string WiseChoice = "You have made a wise choice. Try a full read first.";
 
         /// <summary>
         /// Simple prompt for users who have already verified their connection.
         /// </summary>
-        private static readonly string ClickOkToContinue = "Click OK to continue.";
+        protected static readonly string ClickOkToContinue = "Click OK to continue.";
 
         /// <summary>
         /// This will become the first half of the Window caption, and will 
         /// be printed to the user and debug logs each time a device is 
         /// initialized.
         /// </summary>
-        private const string AppName = "PCM Hammer";
+        protected const string AppName = "PCM Hammer";
 
         /// <summary>
         /// This becomes the second half of the window caption, is printed
@@ -73,24 +64,24 @@ namespace PcmHacking
         /// 
         /// If not null, use a number like "004" that matches a release branch.
         /// </summary>
-        private const string AppVersion = null;
+        protected const string AppVersion = null;
 
         /// <summary>
         /// We had to move some operations to a background thread for the J2534 code as the DLL functions do not have an awaiter.
         /// </summary>
-        private System.Threading.Thread BackgroundWorker = new System.Threading.Thread(delegate () { return; });
+        protected System.Threading.Thread BackgroundWorker = new System.Threading.Thread(delegate () { return; });
 
         /// <summary>
         /// This flag will initialized when a long-running operation begins. 
         /// It will be toggled if the user clicks the cancel button.
         /// Long-running operations can abort when this flag changes.
         /// </summary>
-        private CancellationTokenSource cancellationTokenSource;
+        protected CancellationTokenSource cancellationTokenSource;
 
         /// <summary>
         /// Indicates what type of write, if any, is in progress.
         /// </summary>
-        private WriteType currentWriteType = WriteType.None;
+        protected WriteType currentWriteType = WriteType.None;
 
         /// <summary>
         /// Initializes a new instance of the main window.
@@ -246,7 +237,7 @@ namespace PcmHacking
         /// <summary>
         /// Show the save-as dialog box (after a full read has completed).
         /// </summary>
-        private string ShowSaveAsDialog()
+        protected string ShowSaveAsDialog()
         {
             string fileName = null;
 
@@ -276,7 +267,7 @@ namespace PcmHacking
         /// <summary>
         /// Show the file-open dialog box, so the user can choose the file to write to the flash.
         /// </summary>
-        private string ShowOpenDialog()
+        protected string ShowOpenDialog()
         {
             string fileName = null;
 
@@ -307,7 +298,7 @@ namespace PcmHacking
         /// <remarks>
         /// i.e. userLog.Name or debugLog.Name
         /// </remarks>
-        private string GetLogFilename(string logName)
+        protected string GetLogFilename(string logName)
         {
             string fileName =
                 "PcmHammer_"
@@ -324,7 +315,7 @@ namespace PcmHacking
         /// <remarks>
         /// i.e. userLog.Name or debugLog.Name
         /// </remarks>
-        private string ShowLogSaveAsDialog(string logName)
+        protected string ShowLogSaveAsDialog(string logName)
         {
             string fileName = string.Empty;
 
@@ -402,7 +393,7 @@ namespace PcmHacking
         /// <summary>
         /// Called when the main window is being created.
         /// </summary>
-        private async void MainForm_Load(object sender, EventArgs e)
+        protected async void MainForm_Load(object sender, EventArgs e)
         {
             try
             {
@@ -456,7 +447,7 @@ namespace PcmHacking
         /// <summary>
         /// Parse cmdline parameters
         /// </summary>
-        private void ProcessCommandLine()
+        protected virtual void ProcessCommandLine()
         {
             string[] args = Environment.GetCommandLineArgs();
             Parser.Default.ParseArguments<CommandLineOptions>(args)
@@ -485,7 +476,7 @@ namespace PcmHacking
         /// <remarks>
         /// Used by command line argument '-r' to reset device configuration.
         /// </remarks>
-        private void ResetDeviceConfiguration()
+        protected void ResetDeviceConfiguration()
         {
             DeviceConfiguration.Settings.DeviceCategory = string.Empty;
             DeviceConfiguration.Settings.SerialPortDeviceType = string.Empty;
@@ -498,7 +489,7 @@ namespace PcmHacking
         /// Write calibration automatically after program start, if cmdline parameter 
         /// "writecalibration" with filename is detected
         /// </summary>
-        private async void WriteCalibration(string BinFilePath)
+        protected async void WriteCalibration(string BinFilePath)
         {
             if (!writeCalibrationButton.Enabled)
             {
@@ -519,7 +510,7 @@ namespace PcmHacking
         /// <summary>
         /// The startup message is loaded after the window appears, so that it doesn't slow down app initialization.
         /// </summary>
-        private async void LoadStartMessage(object unused)
+        protected async void LoadStartMessage(object unused)
         {
             ContentLoader loader = new ContentLoader("start.txt", AppVersion, Assembly.GetExecutingAssembly(), this);
             using (Stream content = await loader.GetContentStream())
@@ -540,7 +531,7 @@ namespace PcmHacking
         /// <summary>
         /// The Help page is loaded after the window appears, so that it doesn't slow down app initialization.
         /// </summary>
-        private async void LoadHelp(object unused)
+        protected async void LoadHelp(object unused)
         {
             ContentLoader loader = new ContentLoader("help.html", AppVersion, Assembly.GetExecutingAssembly(), this);
             Stream content = await loader.GetContentStream();
@@ -561,7 +552,7 @@ namespace PcmHacking
         /// <summary>
         /// The credits page is loaded after the window appears, so that it doesn't slow down app initialization.
         /// </summary>
-        private async void LoadCredits(object unused)
+        protected async void LoadCredits(object unused)
         {
             ContentLoader loader = new ContentLoader("credits.html", AppVersion, Assembly.GetExecutingAssembly(), this);
             Stream content = await loader.GetContentStream();
@@ -582,7 +573,7 @@ namespace PcmHacking
         /// <summary>
         /// Discourage users from closing the app during a write.
         /// </summary>
-        private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
+        protected void MainForm_FormClosing(object sender, FormClosingEventArgs e)
         {
             switch (this.currentWriteType)
             {
@@ -706,7 +697,7 @@ namespace PcmHacking
         /// <summary>
         /// Save Debug Log
         /// </summary>
-        private void saveDebugLogToolStripMenuItem_Click(object sender, EventArgs e)
+        protected void saveDebugLogToolStripMenuItem_Click(object sender, EventArgs e)
         {
             string fileName = ShowLogSaveAsDialog(debugLog.Name);
             SaveLog(debugLog, fileName);
@@ -715,7 +706,7 @@ namespace PcmHacking
         /// <summary>
         /// Save Results Log
         /// </summary>
-        private void saveResultsLogToolStripMenuItem_Click(object sender, EventArgs e)
+        protected void saveResultsLogToolStripMenuItem_Click(object sender, EventArgs e)
         {
             string fileName = ShowLogSaveAsDialog(userLog.Name);
             SaveLog(userLog, fileName);
@@ -724,7 +715,7 @@ namespace PcmHacking
         /// <summary>
         /// Exit Application
         /// </summary>
-        private void exitApplicationToolStripMenuItem_Click(object sender, EventArgs e)
+        protected void exitApplicationToolStripMenuItem_Click(object sender, EventArgs e)
         {
             Application.Exit();
         }
@@ -732,7 +723,7 @@ namespace PcmHacking
         /// <summary>
         /// Settings Dialog
         /// </summary>
-        private void settingsToolStripMenuItem_Click(object sender, EventArgs e)
+        protected void settingsToolStripMenuItem_Click(object sender, EventArgs e)
         {
             using (DialogBoxes.SettingsDialogBox settingsDialog = new DialogBoxes.SettingsDialogBox())
             {
@@ -743,7 +734,7 @@ namespace PcmHacking
         /// <summary>
         /// User Defined Key
         /// </summary>
-        private void userDefinedKeyToolStripMenuItem_Click(object sender, EventArgs e)
+        protected void userDefinedKeyToolStripMenuItem_Click(object sender, EventArgs e)
         {
             if (userDefinedKeyToolStripMenuItem.Checked)
             {
@@ -769,7 +760,7 @@ namespace PcmHacking
         /// <summary>
         /// Select which interface device to use. This opens the Device-Picker dialog box.
         /// </summary>
-        private async void selectButton_Click(object sender, EventArgs e)
+        protected async void selectButton_Click(object sender, EventArgs e)
         {
             await this.HandleSelectButtonClick();
         }
@@ -777,15 +768,15 @@ namespace PcmHacking
         /// <summary>
         /// Reset the current interface device.
         /// </summary>
-        private async void reinitializeButton_Click(object sender, EventArgs e)
+        protected async void reinitializeButton_Click(object sender, EventArgs e)
         {
             await this.InitializeCurrentDevice();
         }
-        
+
         /// <summary>
         /// Read the VIN, OS, etc.
         /// </summary>
-        private async void readPropertiesButton_Click(object sender, EventArgs e)
+        protected async void readPropertiesButton_Click(object sender, EventArgs e)
         {
             if (this.Vehicle == null)
             {
@@ -913,7 +904,7 @@ namespace PcmHacking
         /// <summary>
         /// Update the VIN.
         /// </summary>
-        private async void modifyVinButton_Click(object sender, EventArgs e)
+        protected async void modifyVinButton_Click(object sender, EventArgs e)
         {
             try
             {
@@ -967,7 +958,7 @@ namespace PcmHacking
         /// <summary>
         /// Read the entire contents of the flash.
         /// </summary>
-        private void readFullContentsButton_Click(object sender, EventArgs e)
+        protected void readFullContentsButton_Click(object sender, EventArgs e)
         {
             if (!BackgroundWorker.IsAlive)
             {
@@ -982,7 +973,7 @@ namespace PcmHacking
         /// </summary>
         /// <param name="description">The first line of text in the dialog box.</param>
         /// <returns>True if the user wants to proceed, false if not.</returns>
-        private bool ConfirmBeforeWrite(string description)
+        protected bool ConfirmBeforeWrite(string description)
         {
             DialogResult result;
             if (Configuration.Settings.ConnectionVerified)
@@ -1006,7 +997,7 @@ namespace PcmHacking
                     MessageBoxDefaultButton.Button1); ;
             }
 
-            switch(result)
+            switch (result)
             {
                 case DialogResult.OK:
                 case DialogResult.Yes:
@@ -1025,12 +1016,12 @@ namespace PcmHacking
         /// <summary>
         /// Write Calibration.
         /// </summary>
-        private void writeCalibrationButton_Click(object sender, EventArgs e)
+        protected void writeCalibrationButton_Click(object sender, EventArgs e)
         {
             if (!BackgroundWorker.IsAlive)
             {
                 if (ConfirmBeforeWrite("This will update the calibration on your PCM."))
-                { 
+                {
                     BackgroundWorker = new System.Threading.Thread(() => write_BackgroundThread(WriteType.Calibration));
                     BackgroundWorker.IsBackground = true;
                     BackgroundWorker.Start();
@@ -1041,7 +1032,7 @@ namespace PcmHacking
         /// <summary>
         /// Write the parameter blocks (VIN, problem history, etc)
         /// </summary>
-        private void writeParametersButton_Click(object sender, EventArgs e)
+        protected void writeParametersButton_Click(object sender, EventArgs e)
         {
             if (!BackgroundWorker.IsAlive)
             {
@@ -1057,7 +1048,7 @@ namespace PcmHacking
         /// <summary>
         /// Write Os, Calibration and Boot.
         /// </summary>
-        private void writeOSCalibrationBootToolStripMenuItem_Click(object sender, EventArgs e)
+        protected void writeOSCalibrationBootToolStripMenuItem_Click(object sender, EventArgs e)
         {
             if (!BackgroundWorker.IsAlive)
             {
@@ -1073,12 +1064,12 @@ namespace PcmHacking
         /// <summary>
         /// Write Full flash (Clone)
         /// </summary>
-        private void writeFullToolStripMenuItem_Click(object sender, EventArgs e)
+        protected void writeFullToolStripMenuItem_Click(object sender, EventArgs e)
         {
             if (!BackgroundWorker.IsAlive)
             {
                 if (ConfirmBeforeWrite("This will replace the contents of the flash memory on your PCM."))
-                { 
+                {
                     BackgroundWorker = new System.Threading.Thread(() => write_BackgroundThread(WriteType.Full));
                     BackgroundWorker.IsBackground = true;
                     BackgroundWorker.Start();
@@ -1089,7 +1080,7 @@ namespace PcmHacking
         /// <summary>
         /// Compare block CRCs of a file and the PCM.
         /// </summary>
-        private void quickComparisonButton_Click(object sender, EventArgs e)
+        protected void quickComparisonButton_Click(object sender, EventArgs e)
         {
             if (!BackgroundWorker.IsAlive)
             {
@@ -1099,7 +1090,7 @@ namespace PcmHacking
             }
         }
 
-        private void testWriteButton_Click(object sender, EventArgs e)
+        protected void testWriteButton_Click(object sender, EventArgs e)
         {
             if (!BackgroundWorker.IsAlive)
             {
@@ -1112,7 +1103,7 @@ namespace PcmHacking
         /// <summary>
         /// Test something in a kernel.
         /// </summary>
-        private void testKernelButton_Click(object sender, EventArgs e)
+        protected void testKernelButton_Click(object sender, EventArgs e)
         {
             if (!BackgroundWorker.IsAlive)
             {
@@ -1125,7 +1116,7 @@ namespace PcmHacking
         /// <summary>
         /// Set the cancelOperation flag, so that an ongoing operation can be aborted.
         /// </summary>
-        private void CancelButton_Click(object sender, EventArgs e)
+        protected void CancelButton_Click(object sender, EventArgs e)
         {
             if ((this.currentWriteType != WriteType.None) && (this.currentWriteType != WriteType.TestWrite))
             {
@@ -1145,11 +1136,11 @@ namespace PcmHacking
             this.AddUserMessage("Cancel button clicked.");
             this.cancellationTokenSource?.Cancel();
         }
-        
+
         /// <summary>
         /// Read the entire contents of the flash.
         /// </summary>
-        private async void readFullContents_BackgroundThread()
+        protected virtual async void readFullContents_BackgroundThread()
         {
             using (new AwayMode())
             {
@@ -1360,7 +1351,7 @@ namespace PcmHacking
         /// <summary>
         /// Write changes to the PCM's flash memory.
         /// </summary>
-        private async void write_BackgroundThread(WriteType writeType, string path = null)
+        protected async void write_BackgroundThread(WriteType writeType, string path = null)
         {
             using (new AwayMode())
             {
@@ -1376,7 +1367,7 @@ namespace PcmHacking
                     }
 
                     this.cancellationTokenSource = new CancellationTokenSource();
-                    
+
                     this.Invoke((MethodInvoker)delegate ()
                     {
                         this.DisableUserInput();
@@ -1634,7 +1625,7 @@ namespace PcmHacking
         /// From the developer's perspective, this is for testing, debugging,
         /// and investigating kernel features that are development.
         /// </summary>
-        private async void exitKernel_BackgroundThread()
+        protected async void exitKernel_BackgroundThread()
         {
             try
             {
@@ -1675,7 +1666,7 @@ namespace PcmHacking
             }
         }
 
-        private async void testFileChecksumsToolStripMenuItem_Click(object sender, EventArgs e)
+        protected async void testFileChecksumsToolStripMenuItem_Click(object sender, EventArgs e)
         {
             string path = this.ShowOpenDialog();
             if (path == null)
