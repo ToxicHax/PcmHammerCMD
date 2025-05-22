@@ -7,17 +7,17 @@ namespace CMDVersion
     /// https://github.com/commandlineparser/commandline
     public class CommandLineOptionsExtra
     {
-        [Option("device_category", Required = false, HelpText = "Device category (0-1), valid: 0 = Serial, 1 = j2534 device")]
+        [Option("dcat", Required = false, HelpText = "Device category (0-1), valid: 0 = Serial, 1 = j2534 device")]
         public string deviceCat { get; set; }
 
-        [Option("device_type", Required = false, HelpText = "Device type (string), example: \"OBDLink\" | use list_devices to get a list of valid devices")]
+        [Option("dtype", Required = false, HelpText = "Device type (string), example: \"OBDLink\" | use list_devices to get a list of valid devices")]
         public string deviceType { get; set; }
 
-        [Option("device_com", Required = false, HelpText = "Device Serial Com Port (0-256), valid: 0, 1, 2..")]
+        [Option("dcom", Required = false, HelpText = "Device Serial Com Port (0-256), valid: 0, 1, 2..")]
         public string deviceCom { get; set; }
 
-        [Option("list_devices", Required = false, HelpText = "Returns a list of valid devices")]
-        public string devicesList { get; set; }
+        [Option("dlist", Required = false, HelpText = "Returns a list of valid devices")]
+        public bool devicesList { get; set; }
 
         [Option("cmdversion", Required = false, HelpText = "Display version of CMD build (not PcmHammer version)")]
         public bool ShowCMDVersion { get; set; }

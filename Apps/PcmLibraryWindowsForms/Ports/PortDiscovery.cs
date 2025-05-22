@@ -1,17 +1,15 @@
-﻿using System;
+﻿using Microsoft.Win32;
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Management;
-using Microsoft.Win32;
 
 namespace PcmHacking
 {
     /// <summary>
     /// Largely based on Muno's answer here: https://stackoverflow.com/questions/2837985/getting-serial-port-information
     /// </summary>
-    class PortDiscovery
+    public class PortDiscovery
     {
         public static IEnumerable<SerialPortInfo> GetPorts(ILogger logger)
         {
@@ -111,8 +109,8 @@ namespace PcmHacking
             this.PortName = GetPortName(this.DeviceID, logger);
 
             if (!string.IsNullOrEmpty(this.PortName) &&
-                !this.Name.Contains("(LPT") && 
-                this.PortName.StartsWith("COM") && 
+                !this.Name.Contains("(LPT") &&
+                this.PortName.StartsWith("COM") &&
                 this.PortName.Length > 3)
             {
                 int number;

@@ -23,6 +23,12 @@ namespace CMDVersion
         public string DEVICE_TYPE { get; private set; }
         public string DEVICE_CAT { get; private set; }
         public string DEVICE_COM_PORT { get; private set; }
+        public string STATUS_ACTIVITY { get; private set; }
+        public string STATUS_TIME_REMAINING { get; private set; }
+        public string STATUS_PERCENT_DONE { get; private set; }
+        public string STATUS_RETRIES { get; private set; }
+        public string STATUS_TRANSFER_SPEED { get; private set; }
+
         public string LAST_CONSOLE_INPUT = null;
 
         /// <summary>
@@ -35,22 +41,31 @@ namespace CMDVersion
         /// </summary>
         public uint FALLBACK_OPERATING_SYSTEM_ID = 0;
 
-        public bool SHOW_DEBUG_MESSAGES = true;
+        public bool SHOW_DEBUG_MESSAGES = false;
 
         public bool HIDE_CONSOLE_WINDOW = false;
 
-
-        public Dictionary<string, Func<string, string>> pipe_commands = new Dictionary<string, Func<string, string>>();
+        public Dictionary<string, Func<string, Task<string>>> pipe_commands = new Dictionary<string, Func<string, Task<string>>>();
         private MemoryStream read_memoryStream;
+        public List<string> DeviceTypeList { get; private set; }
 
         public CMD_MainNoForm()
         {
-            AddUserMessage("CMD PcmHammer version " + CMD_BUILD_VERSION);
+            RegisterPipeCommand("read_entire", command_Read_EntireAsync);
+            RegisterPipeCommand("write_entire", command_Write_Entire);
+            ListAvailableCommands();
+
+            //List of available device types, too lazy to use assembly to get all types,
+            //for now update manually when new devices get added
+            DeviceTypeList = new List<string>();
+            DeviceTypeList.Add(OBDXProDevice.DeviceType);
+            DeviceTypeList.Add(AvtDevice.DeviceType);
+            DeviceTypeList.Add(MockDevice.DeviceType);
+            DeviceTypeList.Add(ElmDevice.DeviceType);
+
+            AddLineBreakMessage("CMD PcmHammer version " + CMD_BUILD_VERSION, ConsoleColor.Cyan, ConsoleColor.Black);
 
             Task<CMD_PipeServer> task = Task.Run(() => new CMD_PipeServer(this));
-
-            RegisterPipeCommand("read_entire", command_Read_Entire);
-            RegisterPipeCommand("write_entire", command_Write_Entire);
 
             MainNoForm_Init();
 
@@ -75,12 +90,45 @@ namespace CMDVersion
             task.Wait();
         }
 
+        public void UpdateTitleProgressBar(string state, int progress)
+        {
+            int prog = progress;
+            string finalTitle = state + " [";
+            for (int i = 0; i < 100; i++)
+            {
+                if (i == 50)
+                {
+                    finalTitle += "[ ";
+                    if (progress < 10) finalTitle += " ";
+                    if (progress < 99) finalTitle += " ";
+                    finalTitle += progress + "%";
+                    if (progress < 10) finalTitle += " ";
+                    finalTitle += " ]";
+                }
+                finalTitle += (prog > i) ? "|" : ".";
+            }
+            finalTitle += "]";
+            Console.Title = " | Status -> " + finalTitle;
+        }
+
+        private void ListAvailableCommands()
+        {
+            Parser.Default.ParseArguments<CommandLineOptionsExtra>(new string[] { "--help" });
+
+            AddLineBreakMessage("CMD PcmHammer Pipe Commands:", ConsoleColor.DarkBlue, ConsoleColor.White);
+
+            foreach (string command in pipe_commands.Keys)
+            {
+                AddUserMessage(command + " <DATA_PAYLOAD>");
+            }
+        }
+
         private void DoConsoleInput()
         {
             bool running = true;
             while (running)
             {
-                string input = Console.ReadLine().ToLower();
+                string input = Console.ReadLine();//.ToLower();
                 LAST_CONSOLE_INPUT = input;
                 if (LAST_CONSOLE_INPUT.Length > 0)
                 {
@@ -90,7 +138,8 @@ namespace CMDVersion
                     }
                     else
                     {
-                        string replyData = ProcessPipeMessage(input.Replace(" ", "|"));
+                        //we do some blocking here, for now.
+                        string replyData = ProcessPipeMessage(input.Replace(" ", "|")).GetAwaiter().GetResult();
                         //TODO: process the reply data if needed, and make a little wrapper for the data to allow multiple data types, not just strings
 
                         if (replyData == null)
@@ -98,7 +147,14 @@ namespace CMDVersion
                             ProcessCommandLine();
                             if (LAST_CONSOLE_INPUT == null)
                             {
-                                AddUserMessage("No pipe command or args found for '" + input + "'!");
+                                LAST_CONSOLE_INPUT = "--" + input; //little bypass for forgetful users (like myself)
+                                ProcessCommandLine();
+                            }
+
+                            if (LAST_CONSOLE_INPUT == null)
+                            {
+                                if (input != "--help" && input != "--version")
+                                    AddUserMessage("No valid CMD pipe command or CMD args found for '" + input + "'!");
                             }
                         }
                     }
@@ -106,26 +162,51 @@ namespace CMDVersion
             }
         }
 
-        private string command_Write_Entire(string payload)
+        private async Task<string> command_Write_Entire(string payload)
         {
             AddUserMessage("CLIENT REQUESTING: WRITE ENTIRE");
+            await ResetDevice();
             //TODO: WRITE ENTIRE WITH PROVIDED PAYLOAD, SEND BACK EITHER SUCCESS OR ERROR MESSAGE
             return "empty_reply";
         }
 
-        private string command_Read_Entire(string payload)
+        private async Task<string> command_Read_EntireAsync(string payload)
         {
             AddUserMessage("CLIENT REQUESTING: READ ENTIRE");
+
+            bool flag = false;
+            string cleanPL = payload; //no filters
+            if (cleanPL.StartsWith("path="))
+            {
+                string path = cleanPL.Replace("path=", "");
+                PATH_SAVE_PCM_IMAGE = path;
+                AddUserMessage("Setting PCM Image Save File Path: " + path);
+                flag = true;
+            }
+
+            if (flag)
+            {
+                await ResetDevice();
+                //attempt load read file
+                AddUserMessage("Executing read full...");
+                if (!BackgroundWorker.IsAlive)
+                {
+                    BackgroundWorker = new Thread(() => readFullContents_BackgroundThread());
+                    BackgroundWorker.IsBackground = true;
+                    BackgroundWorker.Start();
+                }
+            }
+
             //TODO: READ ENTIRE, SEND BACK EITHER ERROR MESSAGE OR PCM BIN
             return "empty_reply";
         }
 
-        public void RegisterPipeCommand(string command, Func<string, string> obj)
+        public void RegisterPipeCommand(string command, Func<string, Task<string>> obj)
         {
             pipe_commands.Add(command, obj);
         }
 
-        public string ProcessPipeMessage(string message)
+        public async Task<string> ProcessPipeMessage(string message)
         {
             string[] payload = new string[] { message };
             string payload_data = "";
@@ -140,9 +221,9 @@ namespace CMDVersion
 
             string command = payload[0].ToLower();
 
-            if (pipe_commands.TryGetValue(command, out Func<string, string> method))
+            if (pipe_commands.TryGetValue(command, out Func<string, Task<string>> method))
             {
-                return method(payload_data);
+                return await method(payload_data);
             }
 
             return null;
@@ -152,7 +233,7 @@ namespace CMDVersion
         /// <summary>
         /// Main program initiliazation, welcome message, sets status, processes program arguments and resets j2534 device
         /// </summary>
-        public async void MainNoForm_Init()
+        public void MainNoForm_Init()
         {
             AddUserMessage(GetAppNameAndVersion());
 
@@ -161,7 +242,7 @@ namespace CMDVersion
                 StatusUpdateReset();
                 ProcessCommandLine();
 
-                await ResetDevice();
+                //await ResetDevice();
             }
             catch (Exception exception)
             {
@@ -174,10 +255,13 @@ namespace CMDVersion
         {
             bool success = false;
             string[] args = GetCommandArgs();
+
             Parser.Default.ParseArguments<CommandLineOptionsExtra>(args)
                 .WithParsed<CommandLineOptionsExtra>(o =>
                 {
                     HIDE_CONSOLE_WINDOW = o.HideConsole;
+
+                    //DeviceConfiguration.Settings.Enable4xReadWrite = picker.Enable4xReadWrite;
 
                     if (o.ShowCMDVersion)
                     {
@@ -188,32 +272,123 @@ namespace CMDVersion
                     if (o.deviceCat != null)
                     {
                         DEVICE_CAT = o.deviceCat;
+                        DeviceConfiguration.Settings.DeviceCategory = DEVICE_CAT;
+                        DeviceConfiguration.Settings.Save();
+                        AddUserMessage("Set device category to " + DEVICE_CAT);
                         success = true;
                     }
 
                     if (o.deviceType != null)
                     {
                         DEVICE_TYPE = o.deviceType;
+                        DeviceConfiguration.Settings.J2534DeviceType = DEVICE_TYPE;
+                        DeviceConfiguration.Settings.SerialPortDeviceType = DEVICE_TYPE;
+                        DeviceConfiguration.Settings.Save();
+                        AddUserMessage("Set device type to " + DEVICE_TYPE);
                         success = true;
                     }
 
                     if (o.deviceCom != null)
                     {
                         DEVICE_COM_PORT = o.deviceCom;
+                        DeviceConfiguration.Settings.SerialPort = DEVICE_COM_PORT;
+                        DeviceConfiguration.Settings.Save();
+                        AddUserMessage("Set COM port to " + DEVICE_COM_PORT);
                         success = true;
                     }
+
+                    if (o.devicesList)
+                    {
+                        ListDevices();
+                        success = true;
+                    }
+
+
                 });
+
             base.ProcessCommandLine();
 
             if (!success)
                 LAST_CONSOLE_INPUT = null;
         }
 
+        private void ListDevices()
+        {
+            AddLineBreakMessage("Device Category:", ConsoleColor.DarkBlue, ConsoleColor.White);
+
+            int i = 0;
+            foreach (var constant in typeof(DeviceConfiguration.Constants).GetFields())
+            {
+                if (constant.IsLiteral && !constant.IsInitOnly)
+                {
+                    var msg = ((string)constant.GetValue(null));
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    AddUserMessage("(" + i + ") " + msg);
+                    i++;
+                }
+            }
+
+            AddLineBreakMessage("Serial Device Types:", ConsoleColor.DarkBlue, ConsoleColor.White);
+            int c = 0;
+            foreach (string dtyp in DeviceTypeList)
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                AddUserMessage("(" + c + ") " + dtyp);
+                c++;
+            }
+
+            AddLineBreakMessage("J2534 Device Types:", ConsoleColor.DarkBlue, ConsoleColor.White);
+
+            int a = 0;
+            foreach (J2534DotNet.J2534Device device in J2534DeviceFinder.FindInstalledJ2534DLLs(this))
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                AddUserMessage("(" + a + ") " + device.Name);
+                a++;
+            }
+
+            if (a == 0) AddUserMessage("No J2534 devices found.");
+
+
+            AddLineBreakMessage("COM Ports:", ConsoleColor.DarkBlue, ConsoleColor.White);
+
+            int b = 0;
+            foreach (object portInfo in PortDiscovery.GetPorts(this))
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                AddUserMessage("(" + b + ") " + portInfo.ToString());
+                b++;
+            }
+            if (b == 0) AddUserMessage("No COM Ports found.");
+
+            AddUserMessage("  ", false);
+        }
+
+        private void AddLineBreakMessage(string message, ConsoleColor colorBG, ConsoleColor colorFG)
+        {
+            Console.BackgroundColor = ConsoleColor.Black;
+            Console.ForegroundColor = ConsoleColor.Black;
+            string lines = "";
+            for (int i = 0; i < message.Length; i++) lines += "-";
+            AddUserMessage(lines, false);
+            Console.BackgroundColor = colorBG;
+            Console.ForegroundColor = colorFG;
+            AddUserMessage(lines, false);
+            Console.BackgroundColor = colorBG;
+            Console.ForegroundColor = colorFG;
+            AddUserMessage(message, false);
+            Console.BackgroundColor = ConsoleColor.Black;
+            Console.ForegroundColor = ConsoleColor.White;
+
+        }
+
         private string[] GetCommandArgs()
         {
             if (LAST_CONSOLE_INPUT != null)
             {
-                return LAST_CONSOLE_INPUT.Split(' ');
+                var rem = LAST_CONSOLE_INPUT.Split(' ');
+                var args = LAST_CONSOLE_INPUT.Replace(rem[0] + " ", rem[0] + "|");
+                return args.Split('|');
             }
             else
             {
@@ -228,14 +403,18 @@ namespace CMDVersion
                 this.vehicle.Dispose();
                 this.vehicle = null;
             }
+            AddUserMessage("Attempting to connect device... " + DEVICE_CAT + " -> " + DEVICE_TYPE);
 
-            Device device = null;
+            Device device = DeviceFactory.CreateDeviceFromConfigurationSettings(this);
 
-            if (DEVICE_CAT == "0")
-                device = DeviceFactory.CreateSerialDevice(DEVICE_COM_PORT, DEVICE_TYPE, this);
+            if (device == null)
+            {
+                if (DEVICE_CAT == "0")
+                    device = DeviceFactory.CreateSerialDevice(DEVICE_COM_PORT, DEVICE_TYPE, this);
 
-            if (DEVICE_CAT == "1")
-                device = DeviceFactory.CreateJ2534Device(DEVICE_TYPE, this);
+                if (DEVICE_CAT == "1")
+                    device = DeviceFactory.CreateJ2534Device(DEVICE_TYPE, this);
+            }
 
             if (device == null)
             {
@@ -337,26 +516,41 @@ namespace CMDVersion
         public override void StatusUpdateActivity(string activity)
         {
             //TODO: STATUS CALLBACKS MAYBE SEND TO CLIENT
+            STATUS_ACTIVITY = activity;
         }
 
         public override void StatusUpdateTimeRemaining(string remaining)
         {
             //TODO: STATUS CALLBACKS MAYBE SEND TO CLIENT
+            STATUS_TIME_REMAINING = remaining;
         }
 
         public override void StatusUpdatePercentDone(string percent)
         {
             //TODO: STATUS CALLBACKS MAYBE SEND TO CLIENT
+            STATUS_PERCENT_DONE = percent;
         }
 
         public override void StatusUpdateRetryCount(string retries)
         {
             //TODO: STATUS CALLBACKS MAYBE SEND TO CLIENT
+            STATUS_RETRIES = retries;
         }
 
         public override void StatusUpdateProgressBar(double completed, bool visible)
         {
             //TODO: STATUS CALLBACKS MAYBE SEND TO CLIENT
+            string kpbs = "(" + STATUS_TRANSFER_SPEED + ")";
+            string remtime = "[ETA " + STATUS_TIME_REMAINING + "]";
+            string ret = (STATUS_RETRIES == string.Empty) ? "" : "(attempt " + STATUS_RETRIES.Split(' ')[0] + ")";
+            string fin = STATUS_ACTIVITY + ret + " " + kpbs + " " + remtime;
+            UpdateTitleProgressBar(fin, (int)(completed));
+
+            if (!visible)
+            {
+                UpdateTitleProgressBar("READY", 100);
+
+            }
             //visible // is update progress bar visible
             //(int)(completed * 100); //if so, this is the progress
         }
@@ -364,6 +558,7 @@ namespace CMDVersion
         public override void StatusUpdateKbps(string Kbps)
         {
             //TODO: STATUS CALLBACKS MAYBE SEND TO CLIENT
+            STATUS_TRANSFER_SPEED = Kbps;
         }
 
         /// <summary>
@@ -387,6 +582,8 @@ namespace CMDVersion
                     {
                         // This shouldn't be possible - it would mean the buttons 
                         // were enabled when they shouldn't be.
+                        this.AddUserMessage("Abort: Vehicle IS NULL");
+
                         return;
                     }
 
@@ -562,8 +759,49 @@ namespace CMDVersion
         /// </summary>
         public override void AddUserMessage(string message)
         {
+            //UpdateTitleProgressBar("Testing", (int)((double)DateTime.Now.Second * 1.65d));
+
             string timestamp = DateTime.Now.ToString("hh:mm:ss:fff");
-            Console.Write("[" + timestamp + "]  " + message + Environment.NewLine);
+            var bgCol = Console.BackgroundColor;
+            var fgCol = Console.ForegroundColor;
+
+            Console.BackgroundColor = ConsoleColor.Black;
+            Console.ForegroundColor = ConsoleColor.White;
+
+            Console.Write("[" + timestamp + "]  ");
+
+            Console.BackgroundColor = bgCol;
+            Console.ForegroundColor = fgCol;
+
+            Console.Write(message);
+            Console.BackgroundColor = ConsoleColor.Black;
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write(Environment.NewLine);
+
+        }
+
+        /// <summary>
+        /// Add user message to console window
+        /// </summary>
+        public void AddUserMessage(string message, bool showTimeStamp)
+        {
+            string timestamp = DateTime.Now.ToString("hh:mm:ss:fff");
+            var bgCol = Console.BackgroundColor;
+            var fgCol = Console.ForegroundColor;
+
+            Console.BackgroundColor = ConsoleColor.Black;
+            Console.ForegroundColor = showTimeStamp ? ConsoleColor.White : ConsoleColor.Black;
+
+            Console.Write("[" + timestamp + "]  ");
+
+            Console.BackgroundColor = bgCol;
+            Console.ForegroundColor = fgCol;
+
+            Console.Write(message);
+            Console.BackgroundColor = ConsoleColor.Black;
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write(Environment.NewLine);
+
         }
 
         /// <summary>
@@ -575,7 +813,23 @@ namespace CMDVersion
                 return;
 
             string timestamp = DateTime.Now.ToString("hh:mm:ss:fff");
-            Console.Write("[" + timestamp + "] [DEBUG]  " + message + Environment.NewLine);
+
+            var bgCol = Console.BackgroundColor;
+            var fgCol = Console.ForegroundColor;
+
+            Console.BackgroundColor = ConsoleColor.Black;
+            Console.ForegroundColor = ConsoleColor.White;
+
+            Console.Write("[" + timestamp + "] [DEBUG] ");
+
+            Console.BackgroundColor = bgCol;
+            Console.ForegroundColor = fgCol;
+
+            Console.Write(message);
+            Console.BackgroundColor = ConsoleColor.Black;
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write(Environment.NewLine);
+
         }
 
     }

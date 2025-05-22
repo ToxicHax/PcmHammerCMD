@@ -1,14 +1,9 @@
-using J2534DotNet;
-using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace PcmHacking
 {
-    class J2534DeviceFinder
+    public class J2534DeviceFinder
     {
         /// <summary>
         /// Find all installed J2534 DLLs

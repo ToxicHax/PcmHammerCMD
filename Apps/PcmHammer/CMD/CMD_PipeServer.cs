@@ -60,7 +60,8 @@ namespace CMDVersion
                             {
                                 if (message != "quit")
                                 {
-                                    var reply = pipeCallback.ProcessPipeMessage(message);
+                                    //TODO make async and wait for reply
+                                    var reply = pipeCallback.ProcessPipeMessage(message).GetAwaiter().GetResult();
                                     ReturnMessage(reply, writer);
                                 }
                                 else
@@ -86,7 +87,8 @@ namespace CMDVersion
 
         private void Log(string v)
         {
-            Console.WriteLine("[CMDPipe] " + v);
+            string timestamp = DateTime.Now.ToString("hh:mm:ss:fff");
+            Console.WriteLine("[" + timestamp + "]  " + "[CMDPipe] " + v);
         }
     }
 }

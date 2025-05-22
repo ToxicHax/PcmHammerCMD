@@ -1,7 +1,9 @@
-﻿namespace CMDVersion
+﻿using System.Threading.Tasks;
+
+namespace CMDVersion
 {
     public interface IPipeCallback
     {
-        string ProcessPipeMessage(string message);
+        Task<string> ProcessPipeMessage(string message);
     }
 }
