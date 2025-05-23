@@ -3,6 +3,7 @@
 This is a more bare bones "command-line / API wrapper" version of PcmHammer, should be helpful for anyone wanting to write a program ontop of it without modifying PcmHammer's code directly
 
 These tools currently support reading, writing, and data logging with some General Motors PCM's: P01, P04, P08, P10, P12, P59, 4 connector 98-02 Black Box and E54.
+## Note: This is work in progress unstable build until stated otherwise and may contain bugs that the original PCM Hammer doesn't have.
 
 ## Download CMD PcmHammer
 
@@ -11,6 +12,8 @@ Bare bones PcmHammer CMD version: https://github.com/ToxicHax/PcmHammerCMD/relea
 The most recent release will be at the top of that page once available.
 Click "Assets" (below the description of the release) and download the .zip file.   
 Extract the contents of the zip file, and you can access PcmHammerCMD.exe through a command line.
+
+![Screenshot 1](screenshots/screenshot_0.png)
 
 ## API Wrapper?
 
@@ -24,6 +27,8 @@ For now im focusing on like 1 project at a time.
 [PcmHamer CMD Wiki](https://github.com/ToxicHax/PcmHammerCMD/wiki)
 
 [Original PcmHammer GitHub Page](https://github.com/PcmHammer/PcmHammer)
+
+##
 
 ## What purpose does the 'command-line / API wrapper' version of PcmHammer serve?
 
@@ -48,7 +53,7 @@ Don't know if many people will have an use for PcmHammerCMD directly but since I
 
 So I don't plan on including PcmHammerCMD with my project directly, if the user wants to streamline their tuning process the option will be there to add it, and at the end of the day the user can chose whatever method they want to edit and flash the bin, or if the user already uses the UI version of PcmHammer they might prefer to write the bin manually, and if PcmHammer updates I'm sure stuff could break, its such a minor feature to add to my program but I just want it to be as polished as possible.
 
-I personally don't mind too much having to hop from software to software to edit and flash a .bin file, but im sure some more tuners and hobbyist would love a more UI friendly way to work with all of these things, my personal goal is to get my software to the point where I can personally daily it and use it over HPTuners for all the gen3 LS needs, custom OS's peak my interest, and maybe one day for the newer gen4 stuff there might be support as well, I see some smart people having some luck tackling that in another project already, over all the work that has been done from PcmHammer and the community is very inspiring, and I hope I will be able to provide something of use as well.
+I personally don't mind too much having to hop from software to software to edit and flash a .bin file, but im sure some more tuners and hobbyist would love a more UI friendly way to work with all of these things, my personal goal is to get my software to the point where I can personally daily it and use it over HPTuners for all the gen3 LS needs, custom OS's peak my interest, and down the line i want to add support for newer gen4 pcms as well, I saw some smart people having some luck tackling that already, over all the work that has been done from PcmHammer and the community is very inspiring, and I hope I will be able to provide something of use as well.
 
 For now stay tuned. (pun intended)
 
