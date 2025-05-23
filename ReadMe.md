@@ -14,11 +14,12 @@ Click "Assets" (below the description of the release) and download the .zip file
 Extract the contents of the zip file, and you can access PcmHammerCMD.exe through a command line.
 
 ![Screenshot 1](screenshots/screenshot_0.png)
+(ignore the double 'read_entire' under the example.. shhhh, i may have overlooked that)
 
-## API Wrapper?
+## API Wrapper? Library?
 
 Not yet.
-The mentioned PcmHammer API .DLL will have a seperate GitHub since it wont include any PcmHammer code, more of a standalone wrapper that will interact with PcmHammer CMD.
+The mentioned CMD PcmHammer Library will probably have a seperate GitHub since its not an actual library that requires PcmHammer code, its more of a standalone wrapper that uses pipe messages to send and interact with this PcmHammer CMD program.
 once its available the GitHub and source for the DLL will be posted below.
 For now im focusing on like 1 project at a time.
 
