@@ -2,6 +2,7 @@
 using PcmHacking;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -45,16 +46,26 @@ namespace CMDVersion
 
         public bool HIDE_CONSOLE_WINDOW = false;
 
-        public Dictionary<string, Func<string, Task<string>>> pipe_commands = new Dictionary<string, Func<string, Task<string>>>();
+        public Dictionary<string, CMD_PipeCommand> pipe_commands = new Dictionary<string, CMD_PipeCommand>();
         private MemoryStream read_memoryStream;
+        private string command_desc_readentire = "path=<file_path>\n-> Reads the PCM to the provided file path,\nexample: read_entire path=C:\\Users\\-USERNAME-\\CMDHammer\\output.bin";
+        private string command_desc_writeentire = "path=<file_path>\n-> Writes a full bin to the PCM from the provided file path,\nexample: write_entire path=C:\\Users\\-USERNAME-\\CMDHammer\\modded.bin";
+
         public List<string> DeviceTypeList { get; private set; }
+        public string CURRENT_VALID_DEVICE { get; private set; }
 
         public CMD_MainNoForm()
         {
-            RegisterPipeCommand("read_entire", command_Read_EntireAsync);
-            RegisterPipeCommand("write_entire", command_Write_Entire);
+            DeviceConfiguration.Settings.PropertyChanged += OnSettingsChanged;
+            DeviceConfiguration.Settings.Reload();
+            RegisterPipeCommand("read_entire", command_desc_readentire, command_Read_EntireAsync);
+
+            //TODO: Make write entire command work.
+            //RegisterPipeCommand("write_entire", command_desc_writeentire, command_Write_Entire);
+
             ListAvailableCommands();
 
+            //TODO: Use assembly to get all device types
             //List of available device types, too lazy to use assembly to get all types,
             //for now update manually when new devices get added
             DeviceTypeList = new List<string>();
@@ -90,6 +101,20 @@ namespace CMDVersion
             task.Wait();
         }
 
+        private void OnSettingsChanged(object sender, PropertyChangedEventArgs e)
+        {
+
+            DEVICE_CAT = DeviceConfiguration.Settings.DeviceCategory;
+
+            if (DEVICE_CAT == "Serial")
+                DEVICE_TYPE = DeviceConfiguration.Settings.SerialPortDeviceType;
+
+            if (DEVICE_CAT == "J2534")
+                DEVICE_TYPE = DeviceConfiguration.Settings.J2534DeviceType;
+
+            DEVICE_COM_PORT = DeviceConfiguration.Settings.SerialPort;
+        }
+
         public void UpdateTitleProgressBar(string state, int progress)
         {
             int prog = progress;
@@ -113,14 +138,62 @@ namespace CMDVersion
 
         private void ListAvailableCommands()
         {
+            AddLineBreakMessage("CommandLine commands:", ConsoleColor.DarkGreen, ConsoleColor.White);
+
             Parser.Default.ParseArguments<CommandLineOptionsExtra>(new string[] { "--help" });
 
             AddLineBreakMessage("CMD PcmHammer Pipe Commands:", ConsoleColor.DarkBlue, ConsoleColor.White);
 
-            foreach (string command in pipe_commands.Keys)
+            foreach (CMD_PipeCommand command in pipe_commands.Values)
             {
-                AddUserMessage(command + " <DATA_PAYLOAD>");
+                AddUserMessage("  ", false);
+
+                if (command.description.Contains("\n"))
+                {
+                    bool f = true;
+                    foreach (string line in command.description.Split('\n'))
+                    {
+                        var fline = line;
+                        if (f)
+                        {
+                            fline = command.command + " " + line;
+                            AddLineBreakMessage(fline, ConsoleColor.DarkRed, ConsoleColor.Yellow);
+                        }
+                        else
+                        {
+                            AddUserMessage(fline, false);
+                        }
+
+                        f = false;
+                    }
+                }
+                else
+                {
+                    AddLineBreakMessage(command.command + " " + command.description, ConsoleColor.DarkRed, ConsoleColor.Yellow);
+                }
             }
+
+            AddUserMessage("   ", false);
+            AddUserMessage("   ", false);
+            AddLineBreakMessage("Example Usage: ", ConsoleColor.Black, ConsoleColor.Green);
+            AddUserMessage("   ", false);
+            AddUserMessage("--dlist (Displays all valid device categories, types and com ports)", false);
+            AddUserMessage("   ", false);
+            AddUserMessage("Pick the ones that match your setup", false);
+            AddUserMessage("   ", false);
+            AddUserMessage("example:", false);
+            AddUserMessage("   ", false);
+
+            AddUserMessage("--dcat Serial", false);
+            AddUserMessage("--dtype ObdLink or AllPro", false);
+            AddUserMessage("--dcom COM1", false);
+            AddUserMessage("   ", false);
+            AddUserMessage("Now you can run any pipe command or have another program send a pipe command.", false);
+            AddUserMessage("example:", false);
+            AddUserMessage("   ", false);
+            AddUserMessage("read_entire read_entire path=C:\\Users\\-USERNAME-\\CMDHammer\\output.bin", false);
+            AddUserMessage("   ", false);
+
         }
 
         private void DoConsoleInput()
@@ -138,8 +211,8 @@ namespace CMDVersion
                     }
                     else
                     {
-                        //we do some blocking here, for now.
-                        string replyData = ProcessPipeMessage(input.Replace(" ", "|")).GetAwaiter().GetResult();
+                        string replyData = "";
+                        Task.Run(async () => { replyData = await ProcessPipeMessage(input.Replace(" ", "|")); }).Wait();
                         //TODO: process the reply data if needed, and make a little wrapper for the data to allow multiple data types, not just strings
 
                         if (replyData == null)
@@ -148,6 +221,18 @@ namespace CMDVersion
                             if (LAST_CONSOLE_INPUT == null)
                             {
                                 LAST_CONSOLE_INPUT = "--" + input; //little bypass for forgetful users (like myself)
+                                ProcessCommandLine();
+                            }
+
+                            if (LAST_CONSOLE_INPUT == null)
+                            {
+                                LAST_CONSOLE_INPUT = input + " "; //little hack to check for empty commands
+                                ProcessCommandLine();
+                            }
+
+                            if (LAST_CONSOLE_INPUT == null)
+                            {
+                                LAST_CONSOLE_INPUT = "--" + input + " "; //attempt bypass and empty command, there is a better non hacky way to do this but i cant be bothered.
                                 ProcessCommandLine();
                             }
 
@@ -191,7 +276,7 @@ namespace CMDVersion
                 AddUserMessage("Executing read full...");
                 if (!BackgroundWorker.IsAlive)
                 {
-                    BackgroundWorker = new Thread(() => readFullContents_BackgroundThread());
+                    BackgroundWorker = new Thread(() => this.readFullContents_BackgroundThread());
                     BackgroundWorker.IsBackground = true;
                     BackgroundWorker.Start();
                 }
@@ -201,9 +286,9 @@ namespace CMDVersion
             return "empty_reply";
         }
 
-        public void RegisterPipeCommand(string command, Func<string, Task<string>> obj)
+        public void RegisterPipeCommand(string command, string desc, Func<string, Task<string>> method)
         {
-            pipe_commands.Add(command, obj);
+            pipe_commands.Add(command, new CMD_PipeCommand(command, desc, method));
         }
 
         public async Task<string> ProcessPipeMessage(string message)
@@ -221,8 +306,9 @@ namespace CMDVersion
 
             string command = payload[0].ToLower();
 
-            if (pipe_commands.TryGetValue(command, out Func<string, Task<string>> method))
+            if (pipe_commands.TryGetValue(command, out CMD_PipeCommand pipeCommand))
             {
+                Func<string, Task<string>> method = pipeCommand.funcMethod;
                 return await method(payload_data);
             }
 
@@ -269,7 +355,14 @@ namespace CMDVersion
                         success = true;
                     }
 
-                    if (o.deviceCat != null)
+                    if (o.deviceCat == "")
+                    {
+                        AddUserMessage("Current device category is:");
+                        AddUserMessage((DEVICE_CAT == null || DEVICE_CAT == "") ? "NONE" : DEVICE_CAT);
+
+                        success = true;
+                    }
+                    else if (o.deviceCat != null)
                     {
                         DEVICE_CAT = o.deviceCat;
                         DeviceConfiguration.Settings.DeviceCategory = DEVICE_CAT;
@@ -278,7 +371,14 @@ namespace CMDVersion
                         success = true;
                     }
 
-                    if (o.deviceType != null)
+
+                    if (o.deviceType == "")
+                    {
+                        AddUserMessage("Current device type is:");
+                        AddUserMessage((DEVICE_TYPE == null || DEVICE_TYPE == "") ? "NONE" : DEVICE_TYPE);
+                        success = true;
+                    }
+                    else if (o.deviceType != null)
                     {
                         DEVICE_TYPE = o.deviceType;
                         DeviceConfiguration.Settings.J2534DeviceType = DEVICE_TYPE;
@@ -288,7 +388,14 @@ namespace CMDVersion
                         success = true;
                     }
 
-                    if (o.deviceCom != null)
+
+                    if (o.deviceCom == "")
+                    {
+                        AddUserMessage("Current device COM port is:");
+                        AddUserMessage((DEVICE_COM_PORT == null || DEVICE_COM_PORT == "") ? "NONE" : DEVICE_COM_PORT);
+                        success = true;
+                    }
+                    else if (o.deviceCom != null)
                     {
                         DEVICE_COM_PORT = o.deviceCom;
                         DeviceConfiguration.Settings.SerialPort = DEVICE_COM_PORT;
@@ -296,6 +403,7 @@ namespace CMDVersion
                         AddUserMessage("Set COM port to " + DEVICE_COM_PORT);
                         success = true;
                     }
+
 
                     if (o.devicesList)
                     {
@@ -409,10 +517,10 @@ namespace CMDVersion
 
             if (device == null)
             {
-                if (DEVICE_CAT == "0")
+                if (DEVICE_CAT == "Serial")
                     device = DeviceFactory.CreateSerialDevice(DEVICE_COM_PORT, DEVICE_TYPE, this);
 
-                if (DEVICE_CAT == "1")
+                if (DEVICE_CAT == "J2534")
                     device = DeviceFactory.CreateJ2534Device(DEVICE_TYPE, this);
             }
 
@@ -505,6 +613,14 @@ namespace CMDVersion
             //this.EnableUserInput();
             return true;
         }
+
+        protected override Task ValidDeviceSelectedAsync(string deviceName)
+        {
+            CURRENT_VALID_DEVICE = deviceName;
+
+            return Task.CompletedTask;
+        }
+
 
         public void LogMessage_YoSelectADifferentDevice()
         {
@@ -702,7 +818,7 @@ namespace CMDVersion
                     }
 
                     // This will suppress the scary warnings prior to writing.
-                    Configuration.Settings.ConnectionVerified = true;
+                    PcmHacking.Configuration.Settings.ConnectionVerified = true;
 
                     // Save the contents to the path that the user provided.
                     bool success = false;

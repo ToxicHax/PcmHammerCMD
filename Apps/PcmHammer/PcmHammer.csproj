@@ -86,6 +86,7 @@
     </Compile>
     <Compile Include="CMD\CMD_PipeClientExample.cs" />
     <Compile Include="CMD\CMD_PipeServer.cs" />
+    <Compile Include="CMD\CMD_PipeCommand.cs" />
     <Compile Include="CommandLineOptions.cs" />
     <Compile Include="CMD\CommandLineOptionsExtra.cs" />
     <Compile Include="DialogBoxes\DelayDialogBox.cs">

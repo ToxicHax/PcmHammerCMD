@@ -7,13 +7,13 @@ namespace CMDVersion
     /// https://github.com/commandlineparser/commandline
     public class CommandLineOptionsExtra
     {
-        [Option("dcat", Required = false, HelpText = "Device category (0-1), valid: 0 = Serial, 1 = j2534 device")]
+        [Option("dcat", Required = false, HelpText = "Device category (string), use 'dlist' to get a list of valid device categories")]
         public string deviceCat { get; set; }
 
-        [Option("dtype", Required = false, HelpText = "Device type (string), example: \"OBDLink\" | use list_devices to get a list of valid devices")]
+        [Option("dtype", Required = false, HelpText = "Device type (string), use 'dlist' to get a list of valid device types")]
         public string deviceType { get; set; }
 
-        [Option("dcom", Required = false, HelpText = "Device Serial Com Port (0-256), valid: 0, 1, 2..")]
+        [Option("dcom", Required = false, HelpText = "Device Serial Com Port (string), use 'dlist' to get a list of valid device types")]
         public string deviceCom { get; set; }
 
         [Option("dlist", Required = false, HelpText = "Returns a list of valid devices")]
