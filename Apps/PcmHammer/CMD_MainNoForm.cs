@@ -3,6 +3,7 @@ using PcmHacking;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -50,6 +51,9 @@ namespace CMDVersion
         private MemoryStream read_memoryStream;
         private string command_desc_readentire = "path=<file_path>\n-> Reads the PCM to the provided file path,\nexample: read_entire path=C:\\Users\\-USERNAME-\\CMDHammer\\output.bin";
         private string command_desc_writeentire = "path=<file_path>\n-> Writes a full bin to the PCM from the provided file path,\nexample: write_entire path=C:\\Users\\-USERNAME-\\CMDHammer\\modded.bin";
+        private string command_desc_getdevices = "\n-> Returns a list of device categories, types and com ports available.\nReturns device_list|category0,category1...|type0,type1,type2...|com0,com1,com2...";
+        private string command_desc_setcurrdevice = "<device_cat>,<device_type>,<device_port>\n-> Expects a device category, type and com port, sets and saves it.";
+        private string command_desc_testcurrdevice = "\n-> Checks if the current selected device is alive";
 
         public List<string> DeviceTypeList { get; private set; }
         public string CURRENT_VALID_DEVICE { get; private set; }
@@ -59,6 +63,9 @@ namespace CMDVersion
             DeviceConfiguration.Settings.PropertyChanged += OnSettingsChanged;
             DeviceConfiguration.Settings.Reload();
             RegisterPipeCommand("read_entire", command_desc_readentire, command_Read_EntireAsync);
+            RegisterPipeCommand("get_devices", command_desc_getdevices, command_GetDevicesAsync);
+            RegisterPipeCommand("set_current_device", command_desc_setcurrdevice, command_SetCurrentDeviceAsync);
+            RegisterPipeCommand("test_current_device", command_desc_testcurrdevice, command_TestCurrentDeviceAsync);
 
             //TODO: Make write entire command work.
             //RegisterPipeCommand("write_entire", command_desc_writeentire, command_Write_Entire);
@@ -85,21 +92,23 @@ namespace CMDVersion
                 var handle = GetConsoleWindow();
                 ShowWindow(handle, CMD_HIDE); //5 = SHOW
             }
+            else
+            {
+                //
+                DoConsoleInput();
 
+                AddUserMessage("Server is still running, WARNING: forcefully closing this window could cause damages to any PCM's currently being written to.");
 
-            //
-            DoConsoleInput();
+                DoConsoleInput();
 
-            AddUserMessage("Server is still running, WARNING: forcefully closing this window could cause damages to any PCM's currently being written to.");
-
-            DoConsoleInput();
-
-            //TODO: REQUEST SERVER THREAD TO EXIT AND SEE REPORT BACK WITH PROGRESS MAYBE INCASE ANY ON GOING WRITES OR READS ARE HAPPENING
-            AddUserMessage("Requesting graceful exit from server... please wait. WARNING: forcefully closing this window could cause damages to any PCM's currently being written to.");
+                // TODO: REQUEST SERVER THREAD TO EXIT AND SEE REPORT BACK WITH PROGRESS MAYBE INCASE ANY ON GOING WRITES OR READS ARE HAPPENING
+                AddUserMessage("Requesting graceful exit from server... please wait. WARNING: forcefully closing this window could cause damages to any PCM's currently being written to.");
+            }
 
             //and wait for on the pipe server for messages to get processed or getting a quit message to finish.
             task.Wait();
         }
+
 
         private void OnSettingsChanged(object sender, PropertyChangedEventArgs e)
         {
@@ -212,7 +221,7 @@ namespace CMDVersion
                     else
                     {
                         string replyData = "";
-                        Task.Run(async () => { replyData = await ProcessPipeMessage(input.Replace(" ", "|")); }).Wait();
+                        Task.Run(async () => { replyData = await ProcessPipeMessage(null, input.Replace(" ", "|")); }).Wait();
                         //TODO: process the reply data if needed, and make a little wrapper for the data to allow multiple data types, not just strings
 
                         if (replyData == null)
@@ -242,22 +251,94 @@ namespace CMDVersion
                                     AddUserMessage("No valid CMD pipe command or CMD args found for '" + input + "'!");
                             }
                         }
+                        else
+                        {
+                            AddUserMessage("ProcessPipeMessage Result: " + replyData);
+                        }
                     }
                 }
             }
         }
-
-        private async Task<string> command_Write_Entire(string payload)
+        private async Task<string> command_TestCurrentDeviceAsync(string payload, StreamWriter writer)
         {
-            AddUserMessage("CLIENT REQUESTING: WRITE ENTIRE");
+            bool result = await this.ResetDevice();
+            return "status_device|" + result;
+        }
+
+        public async Task<string> command_SetCurrentDeviceAsync(string payload, StreamWriter writer)
+        {
+            bool success = false;
+            string[] devicecattypeport = payload.Split(',');
+            if (devicecattypeport.Length >= 3)
+            {
+                //to set them lets just run them as normal commands with data from client
+                Parser.Default.ParseArguments<CommandLineOptionsExtra>(new string[] { "--dcat " + devicecattypeport[0], "--dtype " + devicecattypeport[1], "--dport " + devicecattypeport[2] });
+                success = true;
+            }
+
+            return "set_current_device|" + success;
+        }
+
+        public async Task<string> command_GetDevicesAsync(string payload, StreamWriter writer)
+        {
+            string message = "device_list";//reply message with all the info
+            message += "|";
+
+            int i = 0;
+            foreach (var constant in typeof(DeviceConfiguration.Constants).GetFields())
+            {
+                if (constant.IsLiteral && !constant.IsInitOnly)
+                {
+                    var msg = ((string)constant.GetValue(null));
+                    if (i != 0) message += ",";
+                    message += msg;
+                    i++;
+                }
+            }
+            message += "|";
+            int c = 0;
+            foreach (string dtyp in DeviceTypeList)
+            {
+                if (c != 0) message += ",";
+                message += dtyp;
+                c++;
+            }
+
+            int a = 0;
+            foreach (J2534DotNet.J2534Device device in J2534DeviceFinder.FindInstalledJ2534DLLs(this))
+            {
+                if (a == 0 && c > 0) message += "|";
+                if (a != 0) message += ",";
+                message += device.Name;
+                a++;
+            }
+            message += "|";
+            int b = 0;
+            foreach (object portInfo in PortDiscovery.GetPorts(this))
+            {
+                if (b != 0) message += ",";
+                message += portInfo.ToString();
+                b++;
+            }
+
+            return message;
+        }
+
+        private async Task<string> command_Write_Entire(string payload, StreamWriter writer)
+        {
             await ResetDevice();
             //TODO: WRITE ENTIRE WITH PROVIDED PAYLOAD, SEND BACK EITHER SUCCESS OR ERROR MESSAGE
             return "empty_reply";
         }
 
-        private async Task<string> command_Read_EntireAsync(string payload)
+        private async Task<string> command_Read_EntireAsync(string payload, StreamWriter writer)
         {
-            AddUserMessage("CLIENT REQUESTING: READ ENTIRE");
+            if (BackgroundWorker.IsAlive)
+            {
+                AddUserMessage("Error: Cannot read entire, Worker already busy with a task.");
+                return "error_alreadybusy";
+            }
+
 
             bool flag = false;
             string cleanPL = payload; //no filters
@@ -273,7 +354,7 @@ namespace CMDVersion
             {
                 await ResetDevice();
                 //attempt load read file
-                AddUserMessage("Executing read full...");
+                AddUserMessage("Executing read entire...");
                 if (!BackgroundWorker.IsAlive)
                 {
                     BackgroundWorker = new Thread(() => this.readFullContents_BackgroundThread());
@@ -282,16 +363,60 @@ namespace CMDVersion
                 }
             }
 
-            //TODO: READ ENTIRE, SEND BACK EITHER ERROR MESSAGE OR PCM BIN
-            return "empty_reply";
+            if (BackgroundWorker.IsAlive)
+            {
+                //block until background worker is finished, send updates every X seconds through pipe
+                Stopwatch timer = new Stopwatch();
+                if (writer != null) timer.Start();
+
+                while (true)
+                {
+                    if (writer != null)
+                    {
+                        if (timer.Elapsed.Seconds >= 2) //send update every 2 seconds
+                        {
+                            timer.Stop();
+                            timer.Start();
+
+                            //TODO: add documentation to wiki for the message structures
+                            var mesg = "status_read_entire|";
+                            mesg += STATUS_ACTIVITY + "|";
+                            mesg += STATUS_PERCENT_DONE + "|";
+                            mesg += STATUS_RETRIES + "|";
+                            mesg += STATUS_TIME_REMAINING + "|";
+                            mesg += STATUS_TRANSFER_SPEED;
+                            SendPipeMessage(writer, mesg);
+                        }
+                    }
+                    else
+                    {
+                        //writer might be null when sending pipe commands locally in console instead of through a pipe
+                        break;
+                    }
+
+                    if (!BackgroundWorker.IsAlive)
+                    {
+                        //return final completion message
+                        return "status_read_entire|completed_success";
+                    }
+                }
+            }
+
+            return "status_read_entire|completed_fail";
         }
 
-        public void RegisterPipeCommand(string command, string desc, Func<string, Task<string>> method)
+        public void SendPipeMessage(StreamWriter writer, string message)
+        {
+            writer.WriteLine(message);
+            writer.Flush();
+        }
+
+        public void RegisterPipeCommand(string command, string desc, Func<string, StreamWriter, Task<string>> method)
         {
             pipe_commands.Add(command, new CMD_PipeCommand(command, desc, method));
         }
 
-        public async Task<string> ProcessPipeMessage(string message)
+        public async Task<string> ProcessPipeMessage(StreamWriter server, string message)
         {
             string[] payload = new string[] { message };
             string payload_data = "";
@@ -308,8 +433,10 @@ namespace CMDVersion
 
             if (pipe_commands.TryGetValue(command, out CMD_PipeCommand pipeCommand))
             {
-                Func<string, Task<string>> method = pipeCommand.funcMethod;
-                return await method(payload_data);
+                AddUserMessage("Client Pipe Executing Command: " + command);
+
+                Func<string, StreamWriter, Task<string>> method = pipeCommand.funcMethod;
+                return await method(payload_data, server);
             }
 
             return null;

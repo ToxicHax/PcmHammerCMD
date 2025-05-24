@@ -60,8 +60,8 @@ namespace CMDVersion
                             {
                                 if (message != "quit")
                                 {
-                                    //TODO make async and wait for reply
-                                    var reply = pipeCallback.ProcessPipeMessage(message).GetAwaiter().GetResult();
+                                    //Blocking until we get result, works for now
+                                    var reply = pipeCallback.ProcessPipeMessage(writer, message).GetAwaiter().GetResult();
                                     ReturnMessage(reply, writer);
                                 }
                                 else

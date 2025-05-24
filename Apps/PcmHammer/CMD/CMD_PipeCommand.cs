@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Threading.Tasks;
 
 namespace CMDVersion
@@ -7,9 +8,9 @@ namespace CMDVersion
     {
         public string command;
         public string description;
-        public Func<string, Task<string>> funcMethod;
+        public Func<string, StreamWriter, Task<string>> funcMethod;
 
-        public CMD_PipeCommand(string command, string description, Func<string, Task<string>> funcMethod)
+        public CMD_PipeCommand(string command, string description, Func<string, StreamWriter, Task<string>> funcMethod)
         {
             this.command = command;
             this.description = description;
