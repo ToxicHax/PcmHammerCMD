@@ -200,7 +200,7 @@ namespace CMDVersion
             AddUserMessage("Now you can run any pipe command or have another program send a pipe command.", false);
             AddUserMessage("example:", false);
             AddUserMessage("   ", false);
-            AddUserMessage("read_entire read_entire path=C:\\Users\\-USERNAME-\\CMDHammer\\output.bin", false);
+            AddUserMessage("read_entire path=C:\\Users\\-USERNAME-\\CMDHammer\\output.bin", false);
             AddUserMessage("   ", false);
 
         }
