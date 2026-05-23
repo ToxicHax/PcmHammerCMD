@@ -1351,7 +1351,7 @@ namespace PcmHacking
         /// <summary>
         /// Write changes to the PCM's flash memory.
         /// </summary>
-        protected async void write_BackgroundThread(WriteType writeType, string path = null)
+        protected virtual async void write_BackgroundThread(WriteType writeType, string path = null)
         {
             using (new AwayMode())
             {

@@ -6,8 +6,10 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Runtime.Remoting.Messaging;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 
 namespace CMDVersion
 {
@@ -63,12 +65,10 @@ namespace CMDVersion
             DeviceConfiguration.Settings.PropertyChanged += OnSettingsChanged;
             DeviceConfiguration.Settings.Reload();
             RegisterPipeCommand("read_entire", command_desc_readentire, command_Read_EntireAsync);
+            RegisterPipeCommand("write_pcm", command_desc_writeentire, command_Write_EntireAsync);
             RegisterPipeCommand("get_devices", command_desc_getdevices, command_GetDevicesAsync);
             RegisterPipeCommand("set_current_device", command_desc_setcurrdevice, command_SetCurrentDeviceAsync);
             RegisterPipeCommand("test_current_device", command_desc_testcurrdevice, command_TestCurrentDeviceAsync);
-
-            //TODO: Make write entire command work.
-            //RegisterPipeCommand("write_entire", command_desc_writeentire, command_Write_Entire);
 
             ListAvailableCommands();
 
@@ -202,7 +202,10 @@ namespace CMDVersion
             AddUserMessage("   ", false);
             AddUserMessage("read_entire path=C:\\Users\\-USERNAME-\\CMDHammer\\output.bin", false);
             AddUserMessage("   ", false);
-
+            AddUserMessage("   ", false);
+            AddUserMessage("write_pcm path=C:\\Users\\-USERNAME-\\CMDHammer\\bin-you-want-to-write.bin;None", false);
+            AddUserMessage("(Replace 'None' with a valid write type: Full, Calibration, Compare, TestWrite, Parameters, OsPlusCalibrationPlusBoot)", false);
+            AddUserMessage("   ", false);
         }
 
         private void DoConsoleInput()
@@ -268,12 +271,28 @@ namespace CMDVersion
         public async Task<string> command_SetCurrentDeviceAsync(string payload, StreamWriter writer)
         {
             bool success = false;
-            string[] devicecattypeport = payload.Split(',');
-            if (devicecattypeport.Length >= 3)
+            string[] parts = payload.Split(',');
+            if (parts.Length >= 3)
             {
-                //to set them lets just run them as normal commands with data from client
-                Parser.Default.ParseArguments<CommandLineOptionsExtra>(new string[] { "--dcat " + devicecattypeport[0], "--dtype " + devicecattypeport[1], "--dport " + devicecattypeport[2] });
+                string cat = parts[0].Trim();
+                string type = parts[1].Trim();
+                string port = parts[2].Trim();
+
+                // Set type and port BEFORE category — OnSettingsChanged fires when DeviceCategory
+                // changes and immediately reads SerialPortDeviceType/SerialPort back. If those
+                // haven't been written yet they return stale/default values.
+                DeviceConfiguration.Settings.J2534DeviceType = type;
+                DeviceConfiguration.Settings.SerialPortDeviceType = type;
+                DeviceConfiguration.Settings.SerialPort = port;
+                DeviceConfiguration.Settings.DeviceCategory = cat;  // triggers OnSettingsChanged last
+                DeviceConfiguration.Settings.Save();
+
+                AddUserMessage($"Device set: {cat} / {type} / {port}");
                 success = true;
+            }
+            else
+            {
+                AddUserMessage("set_current_device: expected payload 'category,type,port'");
             }
 
             return "set_current_device|" + success;
@@ -324,11 +343,164 @@ namespace CMDVersion
             return message;
         }
 
-        private async Task<string> command_Write_Entire(string payload, StreamWriter writer)
+
+        /// <summary>
+        /// Prompt the user before a write operation.
+        /// </summary>
+        /// <param name="description">The first line of text in the dialog box.</param>
+        /// <returns>True if the user wants to proceed, false if not.</returns>
+        protected bool ConfirmBeforeWrite(string description)
         {
-            await ResetDevice();
-            //TODO: WRITE ENTIRE WITH PROVIDED PAYLOAD, SEND BACK EITHER SUCCESS OR ERROR MESSAGE
-            return "empty_reply";
+            DialogResult result;
+            if (Configuration.Settings.ConnectionVerified)
+            {
+                result = MessageBox.Show(
+                    description,
+                    MainForm.ClickOkToContinue,
+                    MessageBoxButtons.OKCancel,
+                    MessageBoxIcon.Information,
+                    MessageBoxDefaultButton.Button1);
+            }
+            else
+            {
+                result = MessageBox.Show(
+                    string.Format(
+                        MainForm.UnverifiedConnectionWarning,
+                        description),
+                    MainForm.UnverifiedConnectionWarningTitle,
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning,
+                    MessageBoxDefaultButton.Button1); ;
+            }
+
+            switch (result)
+            {
+                case DialogResult.OK:
+                case DialogResult.Yes:
+                    return true;
+
+                case DialogResult.No:
+                    this.AddUserMessage(MainForm.WiseChoice);
+                    return false;
+
+                case DialogResult.Cancel:
+                default:
+                    return false;
+            }
+        }
+
+        private async Task<string> command_Write_EntireAsync(string payload, StreamWriter writer)
+        {
+            if (BackgroundWorker.IsAlive)
+            {
+                AddUserMessage("Error: Cannot write entire, Worker already busy with a task.");
+                return "error_alreadybusy";
+            }
+
+            string path_data = payload;
+            string typeData = WriteType.None.ToString().ToLower();
+            AddUserMessage("Attempting write... Payload: " + payload);
+
+            if (payload.Contains(";"))
+            {
+                var splload = payload.Split(';');
+                if (splload.Length > 1)
+                {
+                    path_data = splload[0];
+                    typeData = splload[1].ToLower();
+                }
+            }
+
+            bool flag = false;
+            string cleanPL = path_data; //no filters
+            if (cleanPL.StartsWith("path="))
+            {
+                string path = cleanPL.Replace("path=", "");
+                PATH_SAVE_PCM_IMAGE = path;
+                AddUserMessage("Writing to PCM from file path: " + path);
+                flag = true;
+            }
+            WriteType wtype = WriteType.None;
+            if (flag)
+            {
+                await ResetDevice();
+
+                //attempt write the loaded file
+                var strres = "Performing a write...";
+                switch (typeData)
+                {
+                    case "ospluscalibrationplusboot":
+                        strres = "Executing write os + calibration + boot...";
+                        wtype = WriteType.OsPlusCalibrationPlusBoot;
+                        break;
+                    case "calibration":
+                        strres = "Executing write calibration...";
+                        wtype = WriteType.Calibration;
+                        break;
+                    case "parameters":
+                        strres = "Executing write parameters...";
+                        wtype = WriteType.Parameters;
+                        break;
+                    case "full":
+                        strres = "Executing write entire...";
+                        wtype = WriteType.Full;
+                        break;
+                }
+                AddUserMessage(strres);
+
+
+                if (!BackgroundWorker.IsAlive)
+                {
+                    //if (ConfirmBeforeWrite("This will replace the contents of the flash memory on your PCM."))
+                    //wont use a confirm for now, risky but hey its a console app and the user should know what theyre doing
+                    {
+                        BackgroundWorker = new Thread(() => this.write_BackgroundThread(wtype));
+                        BackgroundWorker.IsBackground = true;
+                        BackgroundWorker.Start();
+                    }
+                }
+            }
+
+            if (BackgroundWorker.IsAlive)
+            {
+                //block until background worker is finished, send updates every X seconds through pipe
+                Stopwatch timer = new Stopwatch();
+                if (writer != null) timer.Start();
+
+                while (true)
+                {
+                    if (writer != null)
+                    {
+                        if (timer.Elapsed.Seconds >= 2) //send update every 2 seconds
+                        {
+                            timer.Stop();
+                            timer.Start();
+
+                            //TODO: add documentation to wiki for the message structures
+                            var mesg = "status_write_entire|";
+                            mesg += STATUS_ACTIVITY + "|";
+                            mesg += STATUS_PERCENT_DONE + "|";
+                            mesg += STATUS_RETRIES + "|";
+                            mesg += STATUS_TIME_REMAINING + "|";
+                            mesg += STATUS_TRANSFER_SPEED;
+                            SendPipeMessage(writer, mesg);
+                        }
+                    }
+                    else
+                    {
+                        //writer might be null when sending pipe commands locally in console instead of through a pipe
+                        break;
+                    }
+
+                    if (!BackgroundWorker.IsAlive)
+                    {
+                        //return final completion message
+                        return "status_write_entire|completed_success";
+                    }
+                }
+            }
+
+            return "status_write_entire|completed_fail";
         }
 
         private async Task<string> command_Read_EntireAsync(string payload, StreamWriter writer)
@@ -802,6 +974,279 @@ namespace CMDVersion
         {
             //TODO: STATUS CALLBACKS MAYBE SEND TO CLIENT
             STATUS_TRANSFER_SPEED = Kbps;
+        }
+
+        /// <summary>
+        /// Write changes to the PCM's flash memory.
+        /// </summary>
+        protected override async void write_BackgroundThread(WriteType writeType, string path = null)
+        {
+            using (new AwayMode())
+            {
+                try
+                {
+                    this.currentWriteType = writeType;
+
+                    if (this.Vehicle == null)
+                    {
+                        // This shouldn't be possible - it would mean the buttons 
+                        // were enabled when they shouldn't be.
+                        return;
+                    }
+
+                    this.cancellationTokenSource = new CancellationTokenSource();
+
+                    /*
+                    this.Invoke((MethodInvoker)delegate ()
+                    {
+                        this.DisableUserInput();
+                        //this.cancelButton.Enabled = true;
+
+                        if (string.IsNullOrWhiteSpace(path))
+                        {
+                            path = this.ShowOpenDialog();
+                        }
+                        if (string.IsNullOrWhiteSpace(path))
+                        {
+                            return;
+                        }
+
+                        DelayDialogBox dialogBox = new DelayDialogBox();
+                        DialogResult dialogResult = dialogBox.ShowDialog(this);
+                        if (dialogResult == DialogResult.Cancel)
+                        {
+                            path = null;
+                            return;
+                        }
+                    });
+                    */
+
+                    if (path == null)
+                    {
+                        this.AddUserMessage(
+                            writeType == WriteType.TestWrite ?
+                                "Test write canceled." :
+                                "Write canceled.");
+                        return;
+                    }
+
+                    this.AddUserMessage(path);
+
+                    byte[] image;
+                    using (Stream stream = File.OpenRead(path))
+                    {
+                        image = new byte[stream.Length];
+                        int bytesRead = await stream.ReadAsync(image, 0, (int)stream.Length);
+                        if (bytesRead != stream.Length)
+                        {
+                            // If this happens too much, we should try looping rather than reading the whole file in one shot.
+                            this.AddUserMessage("Unable to load file.");
+                            return;
+                        }
+                    }
+
+                    // Sanity checks. 
+                    FileValidator validator = new FileValidator(image, this);
+                    if (!validator.IsValid())
+                    {
+                        this.AddUserMessage("This file is corrupt or its format is unknown to PCMHammer. It would render your PCM unusable.");
+                        return;
+                    }
+
+                    UInt32 kernelVersion = 0;
+                    bool needUnlock;
+                    int keyAlgorithm = 1;
+                    bool shouldHalt;
+                    OSIDInfo pcmInfo = null;
+                    bool needToCheckOperatingSystem =
+                        (writeType != WriteType.OsPlusCalibrationPlusBoot) &&
+                        (writeType != WriteType.Full) &&
+                        (writeType != WriteType.TestWrite);
+
+                    this.AddUserMessage("Requesting operating system ID...");
+                    Response<uint> osidResponse = await this.Vehicle.QueryOperatingSystemId(this.cancellationTokenSource.Token);
+                    if (osidResponse.Status == ResponseStatus.Success)
+                    {
+                        pcmInfo = new OSIDInfo(osidResponse.Value);
+                        keyAlgorithm = pcmInfo.KeyAlgorithm;
+                        needUnlock = true;
+
+                        if (!validator.IsSameHardware(osidResponse.Value))
+                        {
+                            return;
+                        }
+
+                        if (!validator.IsSameOperatingSystem(osidResponse.Value))
+                        {
+                            Utility.ReportOperatingSystems(validator.GetOsidFromImage(), osidResponse.Value, writeType, this, out shouldHalt);
+                            if (shouldHalt)
+                            {
+                                return;
+                            }
+                        }
+
+                        needToCheckOperatingSystem = false;
+                    }
+                    else
+                    {
+                        if (this.cancellationTokenSource.Token.IsCancellationRequested)
+                        {
+                            return;
+                        }
+
+                        this.AddUserMessage("Operating system request failed, checking for a live kernel...");
+
+                        kernelVersion = await this.Vehicle.GetKernelVersion();
+                        if (kernelVersion == 0)
+                        {
+                            this.AddUserMessage("Checking for recovery mode...");
+                            bool recoveryMode = await this.Vehicle.IsInRecoveryMode();
+
+                            if (recoveryMode)
+                            {
+                                this.AddUserMessage("PCM is in recovery mode.");
+                                needUnlock = true;
+                            }
+                            else
+                            {
+                                this.AddUserMessage("PCM is not responding to OSID, kernel version, or recovery mode checks.");
+                                this.AddUserMessage("Unlock may not work, but we'll try...");
+                                needUnlock = true;
+                            }
+                            pcmInfo = new OSIDInfo(validator.GetOsidFromImage()); // Prevent Null Reference Exceptions from breaking Recovery Mode
+                        }
+                        else
+                        {
+                            needUnlock = false;
+
+                            this.AddUserMessage("Kernel version: " + kernelVersion.ToString("X8"));
+
+                            this.AddUserMessage("Asking kernel for the PCM's operating system ID...");
+
+                            if (needToCheckOperatingSystem)
+                            {
+                                osidResponse = await this.Vehicle.QueryOperatingSystemIdFromKernel(this.cancellationTokenSource.Token);
+                                if (osidResponse.Status != ResponseStatus.Success)
+                                {
+                                    // The kernel seems broken. This shouldn't happen, but if it does, halt.
+                                    this.AddUserMessage("The kernel did not respond to operating system ID query.");
+                                    return;
+                                }
+
+                                Utility.ReportOperatingSystems(validator.GetOsidFromImage(), osidResponse.Value, writeType, this, out shouldHalt);
+                                if (shouldHalt)
+                                {
+                                    return;
+                                }
+
+                                pcmInfo = new OSIDInfo(osidResponse.Value);
+                            }
+
+                            needToCheckOperatingSystem = false;
+                        }
+                    }
+
+                    // Pre flight checks to block invalid write operations by PCM type.
+                    if (!pcmInfo.IsSupported)
+                    {
+                        string msg = $"Abort: The connected {pcmInfo.HardwareType.ToString()} PCM is not supported.";
+                        this.AddUserMessage(msg);
+                        DialogResult dialogResult = MessageBox.Show(msg, "Abort");
+                        return;
+                    }
+
+                    if (!pcmInfo.IsSupportedWrite)
+                    {
+                        string msg = $"Abort: The connected {pcmInfo.HardwareType.ToString()} PCM is not supported for write operations.";
+                        this.AddUserMessage(msg);
+                        DialogResult dialogResult = MessageBox.Show(msg, "Abort");
+                        return;
+                    }
+
+                    // If the factory binary is not paritioned we cant write by segment, block the non-full write types
+                    if (!pcmInfo.IsSupportedWriteBySegment && (writeType == WriteType.Calibration || writeType == WriteType.OsPlusCalibrationPlusBoot || writeType == WriteType.Parameters))
+                    {
+                        string msg = $"Error: The connected {pcmInfo.HardwareType.ToString()} PCM binary format is not partitioned and does not support partial write." + Environment.NewLine +
+                                    "You will need to do a Write Full Flash (Clone) instead.";
+                        this.AddUserMessage(msg);
+                        DialogResult dialogResult = MessageBox.Show(msg, "Error");
+                        return;
+                    }
+
+                    // If we cant write the slave, warn the user of operating system changes
+                    if (pcmInfo.HardwareSlaveCPU == true && !pcmInfo.IsSupportedWriteSlaveCPU && (writeType == WriteType.Full || writeType == WriteType.OsPlusCalibrationPlusBoot))
+                    {
+                        string msg = $"Warning: Writes to the {pcmInfo.HardwareType.ToString()} slave CPU are not supported." + Environment.NewLine +
+                                    "You must have another way to update the slave CPU to match when you change operating system, else electronic throttle may not work." + Environment.NewLine +
+                                    "Restore this PCM to its original operating system if this happens.";
+                        this.AddUserMessage(msg);
+                        DialogResult dialogResult = MessageBox.Show(msg, "Warning!", MessageBoxButtons.YesNo);
+                        if (dialogResult == DialogResult.No)
+                        {
+                            this.AddUserMessage("User chose not to proceed.");
+                            return;
+                        }
+                        else
+                        {
+                            this.AddUserMessage("User chose to proceed.");
+                        }
+                    }
+
+                    await this.Vehicle.SuppressChatter();
+
+                    if (needUnlock)
+                    {
+
+                        bool unlocked = await this.Vehicle.UnlockEcu(keyAlgorithm);
+                        if (!unlocked)
+                        {
+                            this.AddUserMessage("Unlock was not successful.");
+                            return;
+                        }
+
+                        this.AddUserMessage("Unlock succeeded.");
+                    }
+
+                    DateTime start = DateTime.Now;
+
+                    CKernelWriter writer = new CKernelWriter(
+                        this.Vehicle,
+                        pcmInfo,
+                        new Protocol(),
+                        writeType,
+                        this);
+
+                    await writer.Write(
+                        image,
+                        kernelVersion,
+                        validator,
+                        needToCheckOperatingSystem,
+                        this.cancellationTokenSource.Token);
+
+                    this.AddUserMessage("Elapsed time " + DateTime.Now.Subtract(start));
+
+                    // This will suppress the scary warnings prior to writing.
+                    Configuration.Settings.ConnectionVerified = true;
+                }
+                catch (IOException exception)
+                {
+                    this.AddUserMessage(exception.ToString());
+                }
+                finally
+                {
+                    this.currentWriteType = WriteType.None;
+                    /*
+                    this.Invoke((MethodInvoker)delegate ()
+                    {
+                        this.EnableUserInput();
+                        //this.cancelButton.Enabled = false;
+                    });
+                    */
+
+                    // The token / token-source can only be cancelled once, so we need to make sure they won't be re-used.
+                    this.cancellationTokenSource = null;
+                }
+            }
         }
 
         /// <summary>
