@@ -1,8 +1,9 @@
-﻿using CommandLine;
+using CommandLine;
 using PcmHacking;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Data;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -32,6 +33,7 @@ namespace CMDVersion
         public string STATUS_PERCENT_DONE { get; private set; }
         public string STATUS_RETRIES { get; private set; }
         public string STATUS_TRANSFER_SPEED { get; private set; }
+        public string STATUS_PCM_PROPS { get; private set; }
 
         public string LAST_CONSOLE_INPUT = null;
 
@@ -52,6 +54,7 @@ namespace CMDVersion
         public Dictionary<string, CMD_PipeCommand> pipe_commands = new Dictionary<string, CMD_PipeCommand>();
         private MemoryStream read_memoryStream;
         private string command_desc_readentire = "path=<file_path>\n-> Reads the PCM to the provided file path,\nexample: read_entire path=C:\\Users\\-USERNAME-\\CMDHammer\\output.bin";
+        private string command_desc_readprops = "Reads only the OS ID, VIN...etc";
         private string command_desc_writeentire = "path=<file_path>\n-> Writes a full bin to the PCM from the provided file path,\nexample: write_entire path=C:\\Users\\-USERNAME-\\CMDHammer\\modded.bin";
         private string command_desc_getdevices = "\n-> Returns a list of device categories, types and com ports available.\nReturns device_list|category0,category1...|type0,type1,type2...|com0,com1,com2...";
         private string command_desc_setcurrdevice = "<device_cat>,<device_type>,<device_port>\n-> Expects a device category, type and com port, sets and saves it.";
@@ -65,6 +68,7 @@ namespace CMDVersion
             DeviceConfiguration.Settings.PropertyChanged += OnSettingsChanged;
             DeviceConfiguration.Settings.Reload();
             RegisterPipeCommand("read_entire", command_desc_readentire, command_Read_EntireAsync);
+            RegisterPipeCommand("read_properties", command_desc_readprops, command_Read_PropertiesAsync);
             RegisterPipeCommand("write_pcm", command_desc_writeentire, command_Write_EntireAsync);
             RegisterPipeCommand("get_devices", command_desc_getdevices, command_GetDevicesAsync);
             RegisterPipeCommand("set_current_device", command_desc_setcurrdevice, command_SetCurrentDeviceAsync);
@@ -343,50 +347,188 @@ namespace CMDVersion
             return message;
         }
 
-
-        /// <summary>
-        /// Prompt the user before a write operation.
-        /// </summary>
-        /// <param name="description">The first line of text in the dialog box.</param>
-        /// <returns>True if the user wants to proceed, false if not.</returns>
-        protected bool ConfirmBeforeWrite(string description)
+        private async Task<string> command_Read_PropertiesAsync(string payload, StreamWriter writer)
         {
-            DialogResult result;
-            if (Configuration.Settings.ConnectionVerified)
+            if (BackgroundWorker.IsAlive)
             {
-                result = MessageBox.Show(
-                    description,
-                    MainForm.ClickOkToContinue,
-                    MessageBoxButtons.OKCancel,
-                    MessageBoxIcon.Information,
-                    MessageBoxDefaultButton.Button1);
-            }
-            else
-            {
-                result = MessageBox.Show(
-                    string.Format(
-                        MainForm.UnverifiedConnectionWarning,
-                        description),
-                    MainForm.UnverifiedConnectionWarningTitle,
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Warning,
-                    MessageBoxDefaultButton.Button1); ;
+                AddUserMessage("Error: Cannot read properties, Worker already busy with a task.");
+                return "error_alreadybusy";
             }
 
-            switch (result)
+            STATUS_PCM_PROPS = ""; // reset
+            await ResetDevice(); // initialize this.Vehicle — without this it is null and the thread exits immediately
+            BackgroundWorker = new Thread(() => readPropertiesButton_Thread());
+            BackgroundWorker.IsBackground = true;
+            BackgroundWorker.Start();
+
+            // NOTE: readPropertiesButton_Thread is async void, so the thread itself exits
+            // at the first await (IsAlive becomes false immediately). The actual queries
+            // run as async continuations on the thread pool. We must poll STATUS_PCM_PROPS
+            // for the "DONE" sentinel set at the end of the async method instead.
+            var timeout = System.Diagnostics.Stopwatch.StartNew();
+            while (!STATUS_PCM_PROPS.EndsWith("DONE"))
             {
-                case DialogResult.OK:
-                case DialogResult.Yes:
-                    return true;
-
-                case DialogResult.No:
-                    this.AddUserMessage(MainForm.WiseChoice);
-                    return false;
-
-                case DialogResult.Cancel:
-                default:
-                    return false;
+                if (timeout.Elapsed.TotalSeconds >= 20)
+                {
+                    AddUserMessage("read_properties: timed out waiting for ECU response.");
+                    return "status_read_properties|timedout";
+                }
+                Thread.Sleep(100);
             }
+
+            // Strip the trailing DONE sentinel and return exactly once.
+            var result = "status_read_properties" + STATUS_PCM_PROPS.Replace("DONE", "");
+            AddUserMessage("read_properties result: " + result);
+            return result;
+        }
+
+        protected async void readPropertiesButton_Thread()
+        {
+            if (this.Vehicle == null)
+            {
+                // This shouldn't be possible - it would mean the buttons 
+                // were enabled when they shouldn't be.
+                return;
+            }
+
+            try
+            {
+                OSIDInfo pcmInfo = null;
+
+                //this.DisableUserInput();
+
+                var vinResponse = await this.Vehicle.QueryVin();
+                if (vinResponse.Status != ResponseStatus.Success)
+                {
+                    this.AddUserMessage("VIN query failed: " + vinResponse.Status.ToString());
+                    await this.Vehicle.ExitKernel();
+                    STATUS_PCM_PROPS += "|FAILDONE";
+                    return;
+                }
+                this.AddUserMessage("VIN: " + vinResponse.Value);
+                STATUS_PCM_PROPS += "|" + vinResponse.Value;
+
+                var osResponse = await this.Vehicle.QueryOperatingSystemId(CancellationToken.None);
+                if (osResponse.Status == ResponseStatus.Success)
+                {
+                    this.AddUserMessage("OSID: " + osResponse.Value.ToString());
+                    pcmInfo = new OSIDInfo(osResponse.Value);
+                    this.AddUserMessage("Description: " + pcmInfo.Description);
+                    STATUS_PCM_PROPS += "|" + osResponse.Value.ToString();
+
+                }
+                else
+                {
+                    this.AddUserMessage("OS ID query failed: " + osResponse.Status.ToString());
+                    STATUS_PCM_PROPS += "|FAIL";
+                }
+
+                // Disable Calibration ID lookup for those that do not provide it
+                if (pcmInfo != null && pcmInfo.HardwareType != PcmType.BlackBox)
+                {
+
+                    var calResponse = await this.Vehicle.QueryCalibrationId();
+                    if (calResponse.Status == ResponseStatus.Success)
+                    {
+                        this.AddUserMessage("Calibration ID: " + calResponse.Value.ToString());
+                        STATUS_PCM_PROPS += "|" + calResponse.Value.ToString();
+
+                    }
+                    else
+                    {
+                        this.AddUserMessage("Calibration ID query failed: " + calResponse.Status.ToString());
+                        STATUS_PCM_PROPS += "|FAIL";
+                    }
+                }
+
+                // Disable HardwareID lookup for the P10, P12 and E54.
+                if (pcmInfo != null && pcmInfo.HardwareType != PcmType.P10 && pcmInfo.HardwareType != PcmType.P12 && pcmInfo.HardwareType != PcmType.E54)
+                {
+                    var hardwareResponse = await this.Vehicle.QueryHardwareId();
+                    if (hardwareResponse.Status == ResponseStatus.Success)
+                    {
+                        this.AddUserMessage("Hardware ID: " + hardwareResponse.Value.ToString());
+                        STATUS_PCM_PROPS += "|" + hardwareResponse.Value.ToString();
+                    }
+                    else
+                    {
+                        this.AddUserMessage("Hardware ID query failed: " + hardwareResponse.Status.ToString());
+                        STATUS_PCM_PROPS += "|FAIL";
+                    }
+                }
+
+                // Disable Serial Number lookup for those that do not provide it
+                if (pcmInfo != null && pcmInfo.HardwareType != PcmType.BlackBox)
+                {
+                    var serialResponse = await this.Vehicle.QuerySerial();
+
+                    if (serialResponse.Status == ResponseStatus.Success)
+                    {
+                        this.AddUserMessage("Serial Number: " + serialResponse.Value.ToString());
+                        STATUS_PCM_PROPS += "|" + serialResponse.Value.ToString();
+
+                    }
+                    else
+                    {
+                        this.AddUserMessage("Serial Number query failed: " + serialResponse.Status.ToString());
+                        STATUS_PCM_PROPS += "|FAIL";
+                    }
+                }
+
+                // Disable BCC lookup for those that do not provide it
+                if (pcmInfo != null && pcmInfo.HardwareType != PcmType.P04 && pcmInfo.HardwareType != PcmType.P04_Early && pcmInfo.HardwareType != PcmType.P08)
+                {
+                    var bccResponse = await this.Vehicle.QueryBCC();
+                    if (bccResponse.Status == ResponseStatus.Success)
+                    {
+                        this.AddUserMessage("Broad Cast Code: " + bccResponse.Value.ToString());
+                        STATUS_PCM_PROPS += "|" + bccResponse.Value.ToString();
+                    }
+                    else
+                    {
+                        this.AddUserMessage("BCC query failed: " + bccResponse.Status.ToString());
+                        STATUS_PCM_PROPS += "|FAIL";
+                    }
+                }
+
+                var mecResponse = await this.Vehicle.QueryMEC();
+                if (mecResponse.Status == ResponseStatus.Success)
+                {
+                    this.AddUserMessage("MEC: " + mecResponse.Value.ToString());
+                    STATUS_PCM_PROPS += "|" + mecResponse.Value.ToString();
+                }
+                else
+                {
+                    this.AddUserMessage("MEC query failed: " + mecResponse.Status.ToString());
+                    STATUS_PCM_PROPS += "|FAIL";
+                }
+
+                var voltageResponse = await this.Vehicle.QueryVoltage();
+                if (voltageResponse.Status == ResponseStatus.Success)
+                {
+                    this.AddUserMessage("Voltage: " + voltageResponse.Value.ToString());
+                    STATUS_PCM_PROPS += "|" + voltageResponse.Value.ToString();
+                }
+                else
+                {
+                    this.AddUserMessage("Voltage query failed: " + voltageResponse.Status.ToString());
+                    STATUS_PCM_PROPS += "|FAIL";
+                }
+
+                STATUS_PCM_PROPS += "DONE";
+                return;
+            }
+            catch (Exception exception)
+            {
+                this.AddUserMessage(exception.Message);
+                this.AddDebugMessage(exception.ToString());
+            }
+            finally
+            {
+                //this.EnableUserInput();
+            }
+            STATUS_PCM_PROPS += "DONE";
+            return;
         }
 
         private async Task<string> command_Write_EntireAsync(string payload, StreamWriter writer)
