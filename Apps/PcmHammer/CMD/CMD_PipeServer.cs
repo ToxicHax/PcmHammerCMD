@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.IO.Pipes;
+using System.Threading;
 
 namespace CMDVersion
 {
@@ -8,9 +9,20 @@ namespace CMDVersion
     {
         private IPipeCallback pipeCallback;
 
+        private int restartCount = 0;
+
         public CMD_PipeServer(IPipeCallback pipeCallback)
         {
             this.pipeCallback = pipeCallback;
+            StartupPipe();
+        }
+
+        private void StartupPipe()
+        {
+            if (restartCount > 64)
+            {
+                return;
+            }
             NamedPipeServerStream pipeServer = new NamedPipeServerStream("cmd_pcmhammer_pipe", PipeDirection.InOut);
 
             using (pipeServer)
@@ -26,6 +38,14 @@ namespace CMDVersion
                     Log("error: " + e.Message);
                 }
             }
+
+            restartCount++;
+            Thread.Sleep(100);
+            if (restartCount > 64)
+            {
+                Log("Pipe server has been restarted over 64 times, stopping attempts to restart.");
+            }
+            StartupPipe();
         }
 
         public void ReturnMessage(string message, StreamWriter writer)

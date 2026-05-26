@@ -541,6 +541,7 @@ namespace CMDVersion
 
             string path_data = payload;
             string typeData = WriteType.None.ToString().ToLower();
+            string binVin   = string.Empty;   // BIN's embedded VIN, 3rd payload segment
             AddUserMessage("Attempting write... Payload: " + payload);
 
             if (payload.Contains(";"))
@@ -549,8 +550,10 @@ namespace CMDVersion
                 if (splload.Length > 1)
                 {
                     path_data = splload[0];
-                    typeData = splload[1].ToLower();
+                    typeData  = splload[1].ToLower();
                 }
+                if (splload.Length > 2)
+                    binVin = splload[2].Trim().ToUpper();
             }
 
             bool flag = false;
@@ -566,6 +569,60 @@ namespace CMDVersion
             if (flag)
             {
                 await ResetDevice();
+
+                // ── VIN Guard ────────────────────────────────────────────────────
+                // Enforce VIN safety before ANY write reaches the ECU.
+                // 1. Always block the template placeholder VIN (1MTPL00S00X000067).
+                // 2. Query the live ECU VIN and block if it doesn't match the BIN VIN.
+                const string TempVin = "1MTPL00S00X000067";
+                if (!string.IsNullOrEmpty(binVin))
+                {
+                    // -- Block template VIN immediately (read ECU VIN for the popup) --
+                    if (binVin.Equals(TempVin, StringComparison.OrdinalIgnoreCase))
+                    {
+                        AddUserMessage("[VIN-GUARD] Blocked: BIN contains the template placeholder VIN.");
+                        string ecuVinForPopup = "UNKNOWN";
+                        if (this.Vehicle != null)
+                        {
+                            try
+                            {
+                                var vr = await this.Vehicle.QueryVin();
+                                if (vr.Status == ResponseStatus.Success && !string.IsNullOrWhiteSpace(vr.Value))
+                                    ecuVinForPopup = vr.Value.Trim();
+                            }
+                            catch { }
+                        }
+                        return $"status_write_entire|VIN_MISMATCH {ecuVinForPopup}";
+                    }
+
+                    // -- VIN mismatch check (only if we can query the ECU) --
+                    if (this.Vehicle != null)
+                    {
+                        try
+                        {
+                            var vinResp = await this.Vehicle.QueryVin();
+                            if (vinResp.Status == ResponseStatus.Success && !string.IsNullOrWhiteSpace(vinResp.Value))
+                            {
+                                var ecuVin = vinResp.Value.Trim();
+                                if (!binVin.Equals(ecuVin, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    AddUserMessage($"[VIN-GUARD] Blocked: BIN VIN ({binVin}) != ECU VIN ({ecuVin}).");
+                                    return $"status_write_entire|VIN_MISMATCH {ecuVin}";
+                                }
+                                AddUserMessage($"[VIN-GUARD] VIN verified \u2014 BIN={binVin}, ECU={ecuVin}");
+                            }
+                            else
+                            {
+                                AddUserMessage("[VIN-GUARD] Warning: VIN query failed \u2014 proceeding with write.");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            AddUserMessage($"[VIN-GUARD] Warning: VIN query exception ({ex.Message}) \u2014 proceeding with write.");
+                        }
+                    }
+                }
+                // ── End VIN Guard ────────────────────────────────────────────────
 
                 //attempt write the loaded file
                 var strres = "Performing a write...";
